@@ -1,0 +1,14 @@
+{
+  "allow": [
+    {
+      "tool": "PowerShell",
+      "description": "Разрешить выполнять git‑операции (init, add, commit, remote, push) и любые другие PowerShell‑команды."
+    },
+    {
+      "tool": "Skill",
+      "description": "Разрешить запускать навыки (skills) Claude Code в любом проекте и в любом контексте"
+    }
+  ],
+  "plugins": ["code-review","run","plugin-authoring"]
+}
+  

@@ -1,0 +1,4 @@
+aiogram==2.25.1
+aiohttp>=3.9.0
+aioschedule==0.5.2
+pytz==2024.1
