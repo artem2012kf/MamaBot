@@ -166,15 +166,42 @@ class BlockedUserFilter(BaseFilter):
         sender = event.message.sender
         if sender is None:
             return False
-        return active.check_user_in_block(sender.user_id)
+        return active.check_user_in_block(id_max=sender.user_id)
 
 
 def full_name(user) -> str:
-    """Полное имя пользователя в том же формате, что и в Telegram-боте."""
+    """Имя пользователя в том же формате, что и в Telegram-боте.
+
+    TG-бот (main.py) формирует имя только из first_name (+ last_name),
+    без username — поэтому здесь тоже first_name: имена в sbor.db и Users
+    остаются одинаковыми для одного человека в обоих мессенджерах.
+    """
     name = user.first_name or ""
     if user.last_name:
         name += f" {user.last_name}"
     return name
+
+
+def get_gender_max(user) -> str | None:
+    """Определяет пол пользователя MAX по общей таблице Users.
+
+    Порядок поиска (в MAX нет юзернеймов, поэтому ссылаемся на id_max):
+      1. по id_max — если человек уже регистрировался через MAX-бота;
+      2. по полному имени (first_name + last_name) — если он записан только
+         через Telegram-бота; найденную запись при этом привязываем к id_max;
+      3. иначе None (пол неизвестен).
+    """
+    g = active.gender(id_max=user.user_id)
+    if g is not None:
+        return g
+    name = full_name(user)
+    row = utils.find_user_by_name(name)
+    if row is not None:
+        # Привязываем MAX-id к существующей записи пользователя из Telegram
+        # (username из строки TG не трогаем — в MAX юзернеймов нет).
+        active.add_user(id_tg=row[0], id_max=user.user_id)
+        return active.gender(id_max=user.user_id)
+    return None
 
 
 async def cb_dismiss(cb: MessageCallback):
@@ -210,7 +237,7 @@ async def reply_to_cb(cb: MessageCallback, text: str, attachments=None):
 
 async def check_and_handle_block_user(user_id: int, event) -> bool:
     """Проверка блокировки: отправляет сообщение и возвращает True, если заблокирован."""
-    if active.check_user_in_block(user_id):
+    if active.check_user_in_block(id_max=user_id):
         logger.info(f"Пользователь {user_id} заблокирован.")
         if isinstance(event, MessageCreated):
             await event.message.answer("Вы заблокированы")
@@ -284,8 +311,9 @@ async def start(event: MessageCreated):
             await msg.answer("🏐 Запись на тренировку 🏐", attachments=[start_kb_private])
         else:
             await msg.answer("🏐 Запись на тренировку 🏐", attachments=[start_kb])
-        gender = active.gender(sender.user_id)
-        active.add_user(sender.user_id, sender.username, sender.first_name, gender)
+        gender = get_gender_max(sender)
+        # В MAX нет юзернеймов — username остаётся только у Telegram-записей.
+        active.add_user(id_max=sender.user_id, first_name=full_name(sender), gender=gender)
     else:
         await msg.answer("У вас нету доступа к боту")
 
@@ -376,7 +404,7 @@ async def buy1(cb: MessageCallback):
     await cb_dismiss(cb)
 
     username = full_name(user)
-    gender_value = active.gender(user.user_id)
+    gender_value = get_gender_max(user)
 
     if utils.check_user_exists(username):
         return
@@ -571,7 +599,7 @@ async def show_users_list(cb: MessageCallback):
 # ---------- Блокировка / разблокировка ----------
 @dp.message_callback(F.callback.payload == "block_user")
 async def block_user(cb: MessageCallback, context: BaseContext):
-    await reply_to_cb(cb, "Введите id пользователя для блокировки")
+    await reply_to_cb(cb, "Введите id пользователя для блокировки (Telegram или MAX)")
     await context.set_state(UserState1.id)
     await cb_dismiss(cb)
 
@@ -581,14 +609,16 @@ async def fsm_block(event: MessageCreated, context: BaseContext):
     msg = event.message
     input_id = msg.body.text if msg.body else None
     if input_id:
-        active.add_user_to_block(input_id)
-        await msg.answer(f"Пользователь с id: {input_id}, был заблокирован")
+        if active.add_user_to_block(input_id):
+            await msg.answer(f"Пользователь с id: {input_id.strip()}, был заблокирован")
+        else:
+            await msg.answer(f"Пользователь с id: {input_id.strip()} не найден в базе.")
     await context.clear()
 
 
 @dp.message_callback(F.callback.payload == "unlock_user")
 async def unlock_user(cb: MessageCallback, context: BaseContext):
-    await reply_to_cb(cb, "Введите id пользователя для разблокировки")
+    await reply_to_cb(cb, "Введите id пользователя для разблокировки (Telegram или MAX)")
     await context.set_state(UserState1.id1)
     await cb_dismiss(cb)
 
@@ -598,8 +628,10 @@ async def fsm_unlock(event: MessageCreated, context: BaseContext):
     msg = event.message
     input_id = msg.body.text if msg.body else None
     if input_id:
-        active.unlock_users(input_id)
-        await msg.answer(f"Пользователь с id: {input_id}, был разблокирован")
+        if active.unlock_users(input_id):
+            await msg.answer(f"Пользователь с id: {input_id.strip()}, был разблокирован")
+        else:
+            await msg.answer(f"Пользователь с id: {input_id.strip()} не найден в базе.")
     await context.clear()
 
 

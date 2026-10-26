@@ -89,7 +89,9 @@ def clear_next_fin_message_cancelled():
 #---------------------------------------------
 async def check_and_handle_block(message: types.Message):
     user_id = message.from_user.id
-    if active.check_user_in_block(user_id):
+    # В новой схеме таблицы Users столбец id называется id_tg —
+    # Telegram-бот всегда работает через него.
+    if active.check_user_in_block(id_tg=user_id):
         print(f"Пользователь {user_id} заблокирован.")
         await message.answer("Вы заблокированы")
         return True  # Возвращаем True, если пользователь заблокирован
@@ -138,8 +140,8 @@ async def start(message: types.Message): # Use types.Message here
         user_id = message.from_user.id # Get user ID from message
         username = message.from_user.username
         first_name = message.from_user.first_name
-        gender = active.gender(user_id)
-        active.add_user(user_id, username, first_name, gender)
+        gender = active.gender(id_tg=user_id)
+        active.add_user(id_tg=user_id, username=username, first_name=first_name, gender=gender)
     else:
         #Если нет, то говорим об этом
         await message.answer("У вас нету доступа к боту", parse_mode="HTML", reply_markup=None)
@@ -210,8 +212,8 @@ async def buy1(call: types.CallbackQuery):
     if last_name and last_name != "None":
         username += f" {last_name}"
     
-    # Берем пол из ОСНОВНОЙ базы database.db
-    gender_value = active.gender(user_id)
+    # Берем пол из ОСНОВНОЙ базы database.db (по Telegram id)
+    gender_value = active.gender(id_tg=user_id)
 
     # УБРАНА ПРОВЕРКА ОГРАНИЧЕНИЯ НА ЖЕНЩИН
     if utils.check_user_exists(username):
@@ -465,7 +467,7 @@ async def block_user(call: types.CallbackQuery):
 async def fsm_handler(message: types.Message, state: FSMContext):
     #Получаем введённое пользователем сообщение
     input_id = message.text
-    #Вызываем функцию для блокировки
+    #Вызываем функцию для блокировки (id может быть Telegram или MAX)
     active.add_user_to_block(input_id)
     #Отвечаем, что пользователь был заблокирован
     await message.answer(f"Пользователь с id: {input_id}, был заблокирован")
@@ -494,7 +496,7 @@ async def fsm_handler(message: types.Message, state: FSMContext):
     await state.finish()
 
 # Декоратор с проверкой на блокировку, выполненной в виде лямбда-функции
-@dp.message_handler(lambda message: active.check_user_in_block(message.from_user.id))
+@dp.message_handler(lambda message: active.check_user_in_block(id_tg=message.from_user.id))
 async def repeat(message: types.Message):
     # Отправляем сообщение о блокировке
     await message.answer("Вы были заблокированы")
@@ -564,7 +566,7 @@ async def del1():
 @dp.callback_query_handler(text = "Пользователи")
 async def start(call: types.CallbackQuery):
     await call.message.answer(f'Вот список: ')
-    await call.message.answer(f'{active.select()}')
+    await call.message.answer(f'{utils.select()}')
     await call.answer()
 
 @dp.callback_query_handler(text = "Сбросить таблицу")

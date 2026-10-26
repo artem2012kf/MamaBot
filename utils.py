@@ -191,3 +191,28 @@ def delete_one_friend(user_name, gender_type):
     else:
         print(f"Не найдено записей для удаления: {friend_name}")
         return False
+
+def find_user_by_name(name):
+    """Ищет существующего пользователя по имени (first_name из MAX).
+
+    В MAX нет юзернеймов, поэтому при регистрации бот ищет человека по
+    полному имени среди уже записанных через Telegram. Сличение регистронезависимое.
+
+    Возвращает tuple строки Users или None.
+    """
+    if not name:
+        return None
+    conn = active.create_connection()
+    if conn is None:
+        return None
+    try:
+        rows = conn.execute(
+            "SELECT id_tg, id_max, username, first_name FROM Users"
+        ).fetchall()
+    finally:
+        conn.close()
+    target = str(name).strip().casefold()
+    for row in rows:
+        if row[3] and str(row[3]).strip().casefold() == target:
+            return row
+    return None
