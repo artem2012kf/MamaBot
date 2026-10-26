@@ -1,7 +1,12 @@
 import sqlite3
 import active
+from shared.db import configure_connection, DB_TIMEOUT
 
-connection = sqlite3.connect('sbor.db')
+# Долгоживущее соединение этого процесса. Telegram-бот и MAX-бот работают
+# двумя отдельными процессами с этой же файловой базой, поэтому соединение
+# настраивается через configure_connection(): WAL + busy_timeout снимают
+# блокировки "database is locked" при одновременных записях.
+connection = configure_connection(sqlite3.connect('sbor.db', timeout=DB_TIMEOUT))
 cursor = connection.cursor()
 
 cursor.execute(''' 
@@ -11,14 +16,28 @@ gender TEXT NOT NULL
 )
 ''')
 
+def _read(sql, params=()):
+    """Выполняет SELECT новым коротким соединением.
+
+    Telegram-бот и MAX-бот пишут в одну базу из разных процессов; чтение
+    через свежее соединение гарантирует актуальный снимок данных (WAL) и
+    не мешает параллельной записи.
+    """
+    conn = sqlite3.connect('sbor.db', timeout=DB_TIMEOUT)
+    configure_connection(conn)
+    try:
+        return conn.execute(sql, params).fetchall()
+    finally:
+        conn.close()
+
+
 def usersdel():
     cursor.execute("DELETE FROM sbor")
     connection.commit()
 
 def check_user_exists(username):
     try:
-        cursor.execute("SELECT name FROM sbor WHERE name = ?", (username,))
-        result = cursor.fetchone()
+        result = _read("SELECT name FROM sbor WHERE name = ?", (username,))
         return bool(result)
     except Exception as e:
         print(f"Ошибка при проверке пользователя: {e}")
@@ -52,14 +71,14 @@ def delete_user_friends(user_name):
 def get_user_friends_count(user_name, gender_type):
     """Получить количество друзей определенного пола у пользователя"""
     friend_name = get_user_friend_name(user_name, gender_type)
-    cursor.execute("SELECT COUNT(*) FROM sbor WHERE name = ? AND gender = ?", 
-                  (friend_name, gender_type))
-    return cursor.fetchone()[0]
+    row = _read("SELECT COUNT(*) FROM sbor WHERE name = ? AND gender = ?",
+                (friend_name, gender_type))
+    return row[0][0]
 
 def select():
-    # Получаем все записи в порядке добавления
-    cursor.execute('SELECT name, gender FROM sbor ORDER BY rowid')
-    results = cursor.fetchall()
+    # Получаем все записи в порядке добавления (свежее чтение — список
+    # может меняться и из Telegram-бота, и из MAX-бота)
+    results = _read('SELECT name, gender FROM sbor ORDER BY rowid')
 
     if not results:
         return 'Список пуст'
@@ -115,14 +134,13 @@ def select():
     return sms
 
 def nomer():
-    cursor.execute('SELECT name FROM sbor')
-    results = cursor.fetchall()
+    results = _read('SELECT name FROM sbor')
     return len(results)
 
 def count_women():
     # Считаем только основных участников (не друзей) - тех, у кого в имени нет скобок
-    cursor.execute("SELECT COUNT(*) FROM sbor WHERE gender IN ('Ж', 'женский', 'female', 'ж', 'Дев', ' Дев') AND name NOT LIKE '%(%' AND name NOT LIKE '%)%'")
-    return cursor.fetchone()[0]
+    row = _read("SELECT COUNT(*) FROM sbor WHERE gender IN ('Ж', 'женский', 'female', 'ж', 'Дев', ' Дев') AND name NOT LIKE '%(%' AND name NOT LIKE '%)%'")
+    return row[0][0]
 def get_user_friend_name(user_name, gender_type):
     """Генерирует имя друга"""
     return f"{gender_type} ({user_name})"
@@ -130,14 +148,13 @@ def get_user_friend_name(user_name, gender_type):
 def check_friend_exists(user_name, gender_type):
     """Проверяет, существует ли хотя бы один друг определенного пола у пользователя"""
     friend_name = get_user_friend_name(user_name, gender_type)
-    cursor.execute("SELECT COUNT(*) FROM sbor WHERE name = ? AND gender = ?", 
-                  (friend_name, gender_type))
-    return cursor.fetchone()[0] > 0
+    row = _read("SELECT COUNT(*) FROM sbor WHERE name = ? AND gender = ?",
+                (friend_name, gender_type))
+    return row[0][0] > 0
 def get_next_friend_number(user_name, gender_type):
     """Получить следующий номер для друга пользователя"""
-    cursor.execute("SELECT name FROM sbor WHERE name LIKE ? AND gender = ?", 
-                  (f"{user_name} +{gender_type}%", gender_type))
-    results = cursor.fetchall()
+    results = _read("SELECT name FROM sbor WHERE name LIKE ? AND gender = ?",
+                    (f"{user_name} +{gender_type}%", gender_type))
     
     if not results:
         return 1
@@ -159,13 +176,13 @@ def delete_one_friend(user_name, gender_type):
     """Удаляет ОДНУ запись друга определенного пола пользователя"""
     friend_name = get_user_friend_name(user_name, gender_type)
     
-    # Находим первую запись для удаления
-    cursor.execute("SELECT rowid FROM sbor WHERE name = ? AND gender = ? LIMIT 1", 
-                  (friend_name, gender_type))
-    result = cursor.fetchone()
+    # Находим первую запись для удаления (свежее чтение — второй бот мог
+    # уже удалить эту запись параллельно)
+    result = _read("SELECT rowid FROM sbor WHERE name = ? AND gender = ? LIMIT 1",
+                   (friend_name, gender_type))
     
     if result:
-        rowid_to_delete = result[0]
+        rowid_to_delete = result[0][0]
         # Удаляем запись по rowid
         cursor.execute("DELETE FROM sbor WHERE rowid = ?", (rowid_to_delete,))
         connection.commit()

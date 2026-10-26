@@ -1,13 +1,17 @@
 import sqlite3
-# Создание базы данных, если она не была создана ранее
-connection = sqlite3.connect('database.db')
+from shared.db import configure_connection, DB_TIMEOUT
+
+# Создание базы данных, если она не была создана ранее.
+# Telegram-бот и MAX-бот работают двумя процессами с одной базой, поэтому
+# все соединения настраиваются через configure_connection() (WAL + busy_timeout).
+connection = configure_connection(sqlite3.connect('database.db', timeout=DB_TIMEOUT))
 cursor = connection.cursor()
 DATABASE_NAME = "database.db"
 def create_connection():
-    """Создает соединение с базой данных SQLite."""
+    """Создает соединение с базой данных SQLite (WAL, для совместной работы двух ботов)."""
     conn = None
     try:
-        conn = sqlite3.connect(DATABASE_NAME)
+        conn = configure_connection(sqlite3.connect(DATABASE_NAME, timeout=DB_TIMEOUT))
         return conn
     except sqlite3.Error as e:
         print(f"Error connecting to the database: {e}")
@@ -45,32 +49,37 @@ def add_user(user_id, username, first_name, gender):
 # Функция вывода пользователей
 def show_users():
 
-    #Получаем все столбцы из таблицы в список users_list
-    users_list = cursor.execute('SELECT * FROM Users')
+    # Получаем все столбцы из таблицы в список users_list.
+    # Читаем НОВЫМ коротким соединением, а не долгоживущим cursor модуля:
+    # второй процесс-бот (Telegram/MAX) пишет в эту же базу, и в режиме WAL
+    # старое соединение могло бы видеть устаревший снимок данных.
+    conn = create_connection()
+    if conn is None:
+        return ""
+    try:
+        users_list = conn.execute('SELECT * FROM Users')
 
-    #Создаём переменную в которую будем записывать user_id, username, first_name пользователей
-    message = ""
+        #Создаём переменную в которую будем записывать user_id, username, first_name пользователей
+        message = ""
 
-    #Проходимся по элементам списка и записываем их в переменную message
-    for users in users_list:
-        message += f"{users[0]} @{users[1]} {users[2]}\n"
-
-    #Обновляем соединение с таблицей
-    connection.commit()
-
-    #Возвращаем переменную, которая будет служить сообщением для отправки при нажатии на кнопку
-    return message
+        #Проходимся по элементам списка и записываем их в переменную message
+        for users in users_list:
+            message += f"{users[0]} @{users[1]} {users[2]}\n"
+        return message
+    finally:
+        conn.close()
 #Создаём функцию
 def show_statistics():
 
     #Получаем список в котором записано количество элементов первого столбца таблицы
-    count_users = cursor.execute("SELECT COUNT(*) FROM Users").fetchone()
-
-    #Обновляем соединение с таблицей
-    connection.commit()
-
-    #Возвращаем значение для отправки
-    return count_users[0]
+    conn = create_connection()
+    if conn is None:
+        return 0
+    try:
+        count_users = conn.execute("SELECT COUNT(*) FROM Users").fetchone()
+        return count_users[0]
+    finally:
+        conn.close()
 #Функция блокировки пользователей
 def add_user_to_block(input_id):
 
@@ -85,18 +94,27 @@ def check_user_in_block(user_id):
     """
     Проверяет, заблокирован ли пользователь.
 
+    Читается НОВЫМ коротким соединением: второй процесс-бот (Telegram/MAX)
+    может только что заблокировать или разблокировать пользователя, а
+    долгоживущее соединение в WAL видит не всегда свежий снимок данных.
+
     Args:
         user_id (int): ID пользователя.
 
     Returns:
         bool: True, если пользователь заблокирован, False в противном случае.
     """
+    conn = create_connection()
+    if conn is None:
+        return False
     try:
-      cursor.execute(f'SELECT block FROM Users WHERE id = {user_id}')
+      cursor = conn.execute('SELECT block FROM Users WHERE id = ?', (user_id,))
       user_data = cursor.fetchone()
     except sqlite3.Error as e:
       print(f"Ошибка базы данных: {e}")
       return False # Обработка ошибки, можно вернуть False по умолчанию
+    finally:
+      conn.close()
     if user_data:
         block_status = user_data[0]
         return bool(block_status) # Возвращаем bool(1) = True или bool(0) = False
@@ -112,8 +130,15 @@ def unlock_users(input_id):
     #Обновляем соединение с таблицей
     connection.commit()
 def gender(user_id):
-    cursor.execute("SELECT gender FROM Users WHERE id = ?", (user_id,))
-    result = cursor.fetchone()
+    # Читаем новым коротким соединением — то же соображение свежести данных,
+    # что и в check_user_in_block (пользователь мог записаться через другого бота).
+    conn = create_connection()
+    if conn is None:
+        return None
+    try:
+        result = conn.execute("SELECT gender FROM Users WHERE id = ?", (user_id,)).fetchone()
+    finally:
+        conn.close()
     if result:
         return result[0]  # Возвращаем значение gender из основной базы
     else:

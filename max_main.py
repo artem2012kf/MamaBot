@@ -8,21 +8,38 @@
 - инлайн-клавиатура передаётся вложением (см. keyboards_max.py);
 - удаление сообщения — только по message_id, без chat_id;
 - форматирование текста — через параметр format (Format.MARKDOWN / Format.HTML).
+
+Совместная работа с Telegram-ботом на одном хостинге:
+- оба бота запускаются двумя процессами (run_both.py) и читают один config.py;
+- общий доступ к SQLite настроен в shared/db.py (WAL + busy_timeout), поэтому
+  параллельные чтение/запись из двух процессов не дают "database is locked";
+- polling перезапускается после сетевых сбоев, обработчики ошибок изолированы
+  друг от друга (глобальный @dp.errors), graceful shutdown по SIGTERM/SIGINT.
 """
 import asyncio
 import os
+import signal
+import sys
 from datetime import datetime
 
 import aioschedule
 
 from maxapi import Bot, Dispatcher, F
 from maxapi.enums.chat_type import ChatType
+from maxapi.exceptions import InvalidToken, MaxApiError, MaxError
 from maxapi.filters import BaseFilter
 from maxapi.filters.command import Command
+from maxapi.types.error_event import ErrorEvent as MaxErrorEvent
 from maxapi.types.updates.message_callback import MessageCallback
 from maxapi.types.updates.message_created import MessageCreated
 
-from config import API_MAX, GROUP_ID_MAX, admins_max, pol_max
+try:
+    from config import API_MAX, GROUP_ID_MAX, admins_max, pol_max
+except ImportError:
+    sys.exit(
+        "MAX-бот: не найден config.py. Скопируйте config.example.py в config.py "
+        "и заполните токены/ID (config.py общий для обоих ботов)."
+    )
 from keyboards_max import (
     Def,
     admin_panel,
@@ -775,17 +792,109 @@ async def register_scheduler():
 
 
 async def scheduler_loop():
+    """Фоновая задача планировщика.
+
+    Каждая итерация обёрнута в try/except: ошибка одной рассылки (например,
+    временный сбой API MAX или блокировка SQLite) не должна убивать цикл —
+    иначе бот остался бы без напоминаний до самой перезагрузки процесса.
+    """
     while True:
-        await aioschedule.run_pending()
-        await asyncio.sleep(1)
+        try:
+            await aioschedule.run_pending()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(f"Ошибка в планировщике MAX-бота: {e!r}", exc_info=True)
+        try:
+            await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            raise
+
+
+@dp.errors()
+async def global_error_handler(event: MaxErrorEvent):
+    """Глобальный перехват ошибок обработчиков.
+
+    Без него исключение внутри одного хэндлера могло привести к остановке
+    всего polling; теперь ошибка пишется в bot.log, а бот продолжает работать
+    (в том числе и Telegram-бот — они изолированы процессами).
+    """
+    logger.error(
+        f"[MAX] Необработанная ошибка в обработчике: {event.exception!r} "
+        f"(update={type(event.update).__name__})",
+        exc_info=event.exception,
+    )
+
+
+def install_signal_handlers(stop_event: asyncio.Event) -> None:
+    """Graceful shutdown по SIGINT/SIGTERM (остановка на хостинге, `systemctl stop`,
+    завершение супервизором run_both.py)."""
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, stop_event.set)
+        except NotImplementedError:
+            # Windows: add_signal_handler не поддерживается — полагаемся на
+            # KeyboardInterrupt в asyncio.run.
+            pass
 
 
 async def run_max():
-    """Запуск MAX-бота отдельно (python max_main.py)."""
-    asyncio.create_task(register_scheduler())
-    asyncio.create_task(scheduler_loop())
-    await dp.start_polling(bot, skip_updates=True)
+    """Запуск MAX-бота отдельно (python max_main.py) или из run_both.py.
+
+    Устойчив к сбоям: polling перезапускается с экспоненциальной задержкой,
+    если цикл завершился из-за сетевой ошибки; при неверном токене бот
+    останавливается сразу (перезапуск ничего не исправит).
+    """
+    stop_event = asyncio.Event()
+    install_signal_handlers(stop_event)
+
+    scheduler_task = asyncio.create_task(scheduler_loop())
+    delay = 5
+    try:
+        while not stop_event.is_set():
+            await register_scheduler()
+            try:
+                await dp.start_polling(bot, skip_updates=True)
+            except InvalidToken:
+                logger.critical("[MAX] Неверный токен API_MAX — выход. Проверьте config.py.")
+                break
+            except asyncio.CancelledError:
+                raise
+            except (MaxApiError, MaxError, OSError) as e:
+                if stop_event.is_set():
+                    break
+                logger.error(
+                    f"[MAX] Polling аварийно завершился: {e!r}. "
+                    f"Перезапуск через {delay} c.",
+                    exc_info=True,
+                )
+            else:
+                # start_polling вернулся без ошибки — значит, например,
+                # был вызван stop_polling; выходим из цикла.
+                break
+
+            if stop_event.is_set():
+                break
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=delay)
+            except asyncio.TimeoutError:
+                pass
+            delay = min(delay * 2, 300)
+    finally:
+        scheduler_task.cancel()
+        try:
+            await scheduler_task
+        except asyncio.CancelledError:
+            pass
+        try:
+            await bot.close_session()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
-    asyncio.run(run_max())
+    try:
+        asyncio.run(run_max())
+    except KeyboardInterrupt:
+        print("\n[MAX-бот] Остановлен пользователем.")
