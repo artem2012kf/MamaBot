@@ -1,7 +1,9 @@
 """max_main.py — бот для мессенджера MAX (maxapi), полный аналог main.py (Telegram).
 
-Работает с теми же базами данных (sbor.db и database.db), что и Telegram-бот.
-Запускается отдельно (python max_main.py) или вместе с Telegram-ботом через run_both.py.
+Работает с базами данных sbor.db и database.db. Сейчас запущен ЕДИНСТВЕННЫМ
+(Telegram-бот выключен): python max_main.py. Когда Telegram-бот снова включится,
+оба процесса будут читать те же общие базы — настройка WAL/busy_timeout в
+shared/db.py это уже поддерживает.
 
 Особенности API MAX (в отличие от Telegram/aiogram):
 - события подписываются через @dp.message_created(...) и @dp.message_callback(...);
@@ -9,12 +11,10 @@
 - удаление сообщения — только по message_id, без chat_id;
 - форматирование текста — через параметр format (Format.MARKDOWN / Format.HTML).
 
-Совместная работа с Telegram-ботом на одном хостинге:
-- оба бота запускаются двумя процессами (run_both.py) и читают один config.py;
-- общий доступ к SQLite настроен в shared/db.py (WAL + busy_timeout), поэтому
-  параллельные чтение/запись из двух процессов не дают "database is locked";
-- polling перезапускается после сетевых сбоев, обработчики ошибок изолированы
-  друг от друга (глобальный @dp.errors), graceful shutdown по SIGTERM/SIGINT.
+Устойчивость:
+- polling перезапускается после сетевых сбоев с экспоненциальной задержкой;
+- глобальный обработчик ошибок (@dp.errors) не даёт одному хэндлеру уронить бота;
+- graceful shutdown по SIGTERM/SIGINT (остановит планировщик и закроет сессию).
 """
 import asyncio
 import os
@@ -36,10 +36,23 @@ from maxapi.types.updates.message_created import MessageCreated
 try:
     from config import API_MAX, GROUP_ID_MAX, admins_max, pol_max
 except ImportError:
-    sys.exit(
-        "MAX-бот: не найден config.py. Скопируйте config.example.py в config.py "
-        "и заполните токены/ID (config.py общий для обоих ботов)."
-    )
+    # config.py не обязателен: значения можно передать переменными окружения
+    # (удобно на хостинге, где секреты хранят в env, а не в файле).
+    def _env_ints(name: str) -> list[int]:
+        raw = os.environ.get(name, "")
+        return [int(x) for x in raw.replace(";", ",").split(",") if x.strip()]
+
+    API_MAX = os.environ.get("MAX_TOKEN", "")
+    GROUP_ID_MAX = int(os.environ.get("MAX_GROUP_ID", "0"))
+    admins_max = _env_ints("MAX_ADMIN_IDS")
+    pol_max = _env_ints("MAX_POL_IDS")
+
+    if not API_MAX:
+        sys.exit(
+            "MAX-бот: нет config.py и не задан токен. Скопируйте "
+            "config.example.py в config.py ИЛИ задайте переменные окружения "
+            "MAX_TOKEN, MAX_GROUP_ID, MAX_ADMIN_IDS (см. run_max.py)."
+        )
 from keyboards_max import (
     Def,
     admin_panel,
@@ -85,20 +98,19 @@ def mark_next_fin_message_cancelled():
 
 
 def consume_next_fin_message_cancelled():
-    """Проверяет флаг отмены, НЕ удаляя файл.
+    """Проверяет флаг отмены и УДАЛЯЕТ его (одноразовое потребление).
 
-    Файл удаляет Telegram-бот в своём scheduled_fin1 (он срабатывает минутой
-    позже MAX-бота). Если бы флаг удалял MAX, Telegram-бот его не увидел бы
-    и отправил сообщение, которое админ отменил.
+    Пока Telegram-бот выключен, MAX-бот — единственный потребитель флага,
+    поэтому он сам очищает файл после проверки. Иначе «Отмена» повлияла бы
+    на все последующие рассылки, а не только на ближайшую.
     """
     if not os.path.exists(SKIP_NEXT_FIN_FILE):
         return False
 
     try:
-        with open(SKIP_NEXT_FIN_FILE, encoding="utf-8") as file:
-            file.read()
+        os.remove(SKIP_NEXT_FIN_FILE)
     except OSError as error:
-        logger.warning(f"Не удалось прочитать файл отмены сообщения об оплате: {error}")
+        logger.warning(f"Не удалось удалить файл отмены сообщения об оплате: {error}")
 
     return True
 
@@ -775,20 +787,19 @@ async def del1():
 async def register_scheduler():
     """Регистрация периодических задач MAX-бота.
 
-    Время сдвинуто на 1 минуту относительно Telegram-бота (main.py):
-    боты работают в разных процессах с общими базами SQLite, поэтому
-    одновременная запись в одну секунду может давать блокировки.
-    Исключение — scheduled_fin1: MAX проверяет флаг «Отмена» ДО Telegram-бота
-    (в 18:29/19:29 против 18:30/19:30), потому что Telegram удаляет флаг.
+    Сейчас работает только MAX-бот (Telegram-бот выключен), поэтому время
+    рассылок совпадает с исходным расписанием из main.py. Когда Telegram-бот
+    снова включится, сдвиньте эти времена на 1 минуту, чтобы два процесса не
+    писали в общие базы SQLite в одну секунду.
     """
-    aioschedule.every().monday.at("09:01").do(del1)
-    aioschedule.every().friday.at("09:01").do(del1)
-    aioschedule.every().wednesday.at("08:01").do(sbor11)
-    aioschedule.every().saturday.at("08:01").do(sbor22)
-    aioschedule.every().sunday.at("18:29").do(scheduled_fin1)
-    aioschedule.every().thursday.at("19:29").do(scheduled_fin1)
-    aioschedule.every().sunday.at("18:36").do(spisok1)
-    aioschedule.every().thursday.at("19:36").do(spisok1)
+    aioschedule.every().monday.at("09:00").do(del1)
+    aioschedule.every().friday.at("09:00").do(del1)
+    aioschedule.every().wednesday.at("08:00").do(sbor11)
+    aioschedule.every().saturday.at("08:00").do(sbor22)
+    aioschedule.every().sunday.at("18:30").do(scheduled_fin1)
+    aioschedule.every().thursday.at("19:30").do(scheduled_fin1)
+    aioschedule.every().sunday.at("18:35").do(spisok1)
+    aioschedule.every().thursday.at("19:35").do(spisok1)
 
 
 async def scheduler_loop():
@@ -857,7 +868,15 @@ async def run_max():
             try:
                 await dp.start_polling(bot, skip_updates=True)
             except InvalidToken:
-                logger.critical("[MAX] Неверный токен API_MAX — выход. Проверьте config.py.")
+                # Неверный токен — бесконечный перезапуск ничего не исправит,
+                # но и выходить с кодом 1 не будем (иначе супервизор будет
+                # спамить в лог). Ждём сигнала остановки или изменения конфига.
+                logger.critical(
+                    "[MAX] Неверный токен API_MAX — проверьте config.py "
+                    "или переменную окружения MAX_TOKEN. Бот ждёт остановки; "
+                    "после исправления токена перезапустите процесс."
+                )
+                await stop_event.wait()
                 break
             except asyncio.CancelledError:
                 raise
