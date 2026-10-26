@@ -8,3 +8,5 @@ __pycache__/
 *.pyc
 *.db-shm
 *.db-wal
+
+.claude/worktrees/
