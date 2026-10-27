@@ -10,32 +10,35 @@
 
 ## Техническое окружение
 - **Python 3.x**
-- **aiogram** – асинхронный фреймворк для Telegram‑ботов.
-- **maxapi** – клиентская библиотека для мессенджера **MAX** (используется в `max_main.py`).
-- **asyncio**, **aioschedule** – планировщик периодических задач.
-- **SQLite** – две базы:
-  - `sbor.db` – временная таблица с участниками и их друзьями.
-  - `database.db` – основная таблица `Users` (id, username, first_name, gender, block).
-- **logging** – логируется в файл `bot.log`.
-- **pytz** – часовой пояс `Asia/Yekaterinburg`.
+- **aiogram 2.x** — Telegram-бот (`main.py` написан под API aiogram 2: `FSMContext`, `executor`, `aiogram.contrib`).
+- **maxapi** — клиентская библиотека для мессенджера **MAX** (`max_main.py`); требует **pydantic v2**.
+- **ВАЖНО: конфликт зависимостей** — aiogram 2.x требует pydantic v1, maxapi требует pydantic v2, поэтому боты не могут жить в одном интерпретаторе и запускаются **двумя отдельными процессами** (см. `run_both.py`).
+- **asyncio**, **aioschedule** — планировщик периодических задач (свой в каждом процессе).
+- **SQLite** — две общие базы, доступ из обоих процессов. Базы переведены в **WAL-режим** (читатели не блокируют писателей), `busy_timeout=15с`; все SELECT читаются через `fetchall()` — незакрытый курсор с `fetchone()` держит shared-lock навсегда и вешает базу для чужих процессов. **Не открывать базы в DB Browser for SQLite при работающих ботах** — он держит блокировку записи:
+  - `sbor.db` — временная таблица с участниками и их друзьями.
+  - `database.db` — основная таблица `Users` (id, username, first_name, gender, block).
+- **logging** — лог в файл `bot.log` (общий, режим добавления).
+- **pytz** — часовой пояс `Asia/Yekaterinburg`.
 
 ## Структура файлов
 | Файл | Описание |
 |------|----------|
-| `main.py` | Точка входа, инициализация бота, регистрация всех хэндлеров, запуск планировщика. |
-| `max_main.py` | Бот‑клиент для мессенджера **MAX**, почти полная копия `main.py`, использует `maxapi`. |
-| `config.py` | Конфигурация: токены `API` (Telegram) и `API_MAX` (MAX), список администраторов `admins`, ID группы `GROUP_ID`, список разрешённых пользователей `pol`, лимит `MAX_WOMEN`. |
-| `keyboards.py` | Inline‑ и Reply‑клавиатуры для Telegram‑бота. |
-| `keyboards_max.py` | Тот же набор клавиатур, адаптированный под типы из `maxapi`. |
+| `main.py` | Telegram-бот (aiogram 2): обработчики, свой планировщик. |
+| `max_main.py` | MAX-бот на реальном API `maxapi`: `@dp.message_created(...)`, `@dp.message_callback(...)`, FSM через `context`/`StatesGroup`. Полный паритет с `main.py`: старт, запись/отмена, друзья, админ-панель, блокировки, оплата, FSM добавления по имени. Свой планировщик со сдвигом на 1 минуту относительно Telegram (кроме `scheduled_fin1` — она на минуту РАНЬШЕ, чтобы увидеть флаг «Отмена» до того, как Telegram-бот его удалит). |
+| `keyboards_max.py` | Клавиатуры для MAX: клавиатура — вложение `Attachment(INLINE_KEYBOARD)` с `ButtonsPayload` из `CallbackButton`. |
+| `config.py` | Токены `API` (Telegram) и `API_MAX` (MAX), `GROUP_ID` / `GROUP_ID_MAX`, `admins` / `admins_max`, `pol` / `pol_max`, `MAX_WOMEN`. |
+| `keyboards.py` | Inline- и Reply-клавиатуры для Telegram-бота. |
 | `utils.py` | Работа с таблицей `sbor.db`: добавление, удаление, проверка существования, формирование списка участников. |
-| `active.py` | Работа с таблицей `Users` (`database.db`): добавление пользователя, вывод списка, блокировка/разблокировка, получение пола. |
-| `run_both.py` | **Новый скрипт** – одновременно запускает `main.py` (Telegram) и `max_main.py` (MAX) в одном event‑loop, используя общие базы данных. |
+| `active.py` | Работа с таблицей `Users` (`database.db`): добавление пользователя (`source="tg"/"max"` — ID пишется в `id_tg`/`id_max`, имя в `first_name_tg`/`first_name_max`), вывод списка (оба ID с именами), блокировка/разблокировка (по любому из ID), получение пола. При импорте автоматически мигрирует старые схемы (`id` -> `id_tg`, `first_name` -> `first_name_tg` + новые столбцы). |
+| `run_both.py` | Супервизор: запускает `main.py` и `max_main.py` двумя процессами, перезапускает при падении. Переменные окружения `TG_PYTHON` и `MAX_PYTHON` задают разные интерпретаторы (venv) для каждого бота. |
+| `get_max_chats.py` | Выводит чаты бота MAX — чтобы узнать `GROUP_ID_MAX`, ID админов и пользователей. |
+| `shared/logger.py` | Общий логгер (bot.log, режим добавления). |
 | `bot.log` | Файл журнала, в который записываются действия пользователей и ошибки. |
-| `database.db` | SQLite‑файл, содержит таблицу `Users`. |
-| `sbor.db` | SQLite‑файл, содержит таблицу `sbor` (участники и их друзья). |
+| `database.db` | SQLite-файл, таблица `Users(id_tg, id_max, username, first_name_tg, first_name_max, gender, block)`: Telegram-бот работает с `id_tg`/`first_name_tg`, MAX-бот — с `id_max`/`first_name_max`; у MAX-пользователей `username` пустой. Бэкапы: `database.db.bak_2026-10-26` (исходная), `database.db.bak_2026-10-26_v2` (после разделения ID). |
+| `sbor.db` | SQLite-файл, содержит таблицу `sbor` (участники и их друзья). |
 
 ## Основные функции (Telegram и MAX)
-- **Регистрация пользователя** – при `/start` вызывается `active.add_user`, сохраняет id, username, first_name и пол.
+- **Регистрация пользователя** – при `/start` вызывается `active.add_user`: Telegram-бот пишет ID в `id_tg` (+username), MAX-бот — в `id_max` (username в MAX отсутствует).
 - **Запись на тренировку** – обработчики `buy1` (callback `Я иду`) добавляют запись в `sbor.db` через `utils.add`.
 - **Отмена записи** – `not_going` удаляет запись из `sbor.db`.
 - **Управление друзьями** – кнопки «+ Мужчина», «- Мужчина», «+ Девушка», «- Девушка» добавляют/удаляют записи вида `Муж (Имя)`.
@@ -44,14 +47,24 @@
 - **Планировщик** – `scheduler()` задаёт периодические сообщения о начале сбора, списке участников и финальном напоминании об оплате.
 - **Оплата** – после финального сообщения админам отправляется личное сообщение с кнопкой «💳 Оплатить», после нажатия бот отправляет подтверждение.
 
+## Настройка и запуск MAX-бота
+1. Создать бота в MAX (у @masterbot), токен вписать в `config.py` -> `API_MAX`.
+2. Добавить бота в групповой чат MAX и написать ему в личку.
+3. Запустить `python get_max_chats.py` — скопировать `chat_id` группы в `GROUP_ID_MAX`, ID админов в `admins_max` (заполнено: 6253291, 6276257).
+4. Запуск: `python max_main.py` (соло) или `python run_both.py` (оба бота с автоперезапуском).
+5. Команда `/myid` у MAX-бота показывает ID пользователя (для `pol_max`).
+
 ## Как запустить оба бота одновременно
 ```bash
-# Установить зависимости (пример)
-pip install aiogram maxapi aioschedule pytz
+# Актуальная схема: два окружения на одном хостинге
+TG_PYTHON=/путь/venv_tg/bin/python MAX_PYTHON=/путь/venv_max/bin/python python run_both.py
 
-# Убедиться, что токены заданы в `config.py` (API и API_MAX)
+# Или вручную двумя процессами (systemd/screen/nohup):
+python main.py      # окружение с aiogram 2.x (pydantic 1)
+python max_main.py  # окружение с maxapi (pydantic 2)
 
-python run_both.py   # запуск обоих ботов в одном процессе, общие базы данных
+# Одно окружение сработает только после порта main.py на aiogram 3:
+python run_both.py
 ```
 
 ## Попытка прочитать `https://dev.max.ru/docs-api`

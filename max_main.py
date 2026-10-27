@@ -10,6 +10,7 @@
 - форматирование текста — через параметр format (Format.MARKDOWN / Format.HTML).
 """
 import asyncio
+import logging
 import os
 from datetime import datetime
 
@@ -37,6 +38,9 @@ from keyboards_max import (
 import utils
 import active
 from shared.logger import bot_logger as logger
+
+# Логи диспетчера maxapi в консоль (для запуска python max_main.py)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 from maxapi.context.base import BaseContext
 from maxapi.context.state_machine import State, StatesGroup
@@ -137,7 +141,7 @@ class BlockedUserFilter(BaseFilter):
         sender = event.message.sender
         if sender is None:
             return False
-        return active.check_user_in_block(sender.user_id)
+        return active.check_user_in_block(sender.user_id, source="max")
 
 
 def full_name(user) -> str:
@@ -149,9 +153,13 @@ def full_name(user) -> str:
 
 
 async def cb_dismiss(cb: MessageCallback):
-    """Закрывает "часики" на кнопке (аналог call.answer() в aiogram)."""
+    """Закрывает "часики" на кнопке (аналог call.answer() в aiogram).
+
+    MAX API требует обязательное поле message или notification —
+    отправляем невидимое уведомление (пробел).
+    """
     try:
-        await bot.send_callback(callback_id=cb.callback.callback_id, message=None)
+        await bot.send_callback(callback_id=cb.callback.callback_id, notification=" ")
     except Exception as e:
         logger.warning(f"Не удалось ответить на callback: {e}")
 
@@ -181,7 +189,7 @@ async def reply_to_cb(cb: MessageCallback, text: str, attachments=None):
 
 async def check_and_handle_block_user(user_id: int, event) -> bool:
     """Проверка блокировки: отправляет сообщение и возвращает True, если заблокирован."""
-    if active.check_user_in_block(user_id):
+    if active.check_user_in_block(user_id, source="max"):
         logger.info(f"Пользователь {user_id} заблокирован.")
         if isinstance(event, MessageCreated):
             await event.message.answer("Вы заблокированы")
@@ -255,8 +263,8 @@ async def start(event: MessageCreated):
             await msg.answer("🏐 Запись на тренировку 🏐", attachments=[start_kb_private])
         else:
             await msg.answer("🏐 Запись на тренировку 🏐", attachments=[start_kb])
-        gender = active.gender(sender.user_id)
-        active.add_user(sender.user_id, sender.username, sender.first_name, gender)
+        gender = active.gender(sender.user_id, source="max")
+        active.add_user(sender.user_id, sender.username, sender.first_name, gender, source="max")
     else:
         await msg.answer("У вас нету доступа к боту")
 
@@ -347,7 +355,7 @@ async def buy1(cb: MessageCallback):
     await cb_dismiss(cb)
 
     username = full_name(user)
-    gender_value = active.gender(user.user_id)
+    gender_value = active.gender(user.user_id, source="max")
 
     if utils.check_user_exists(username):
         return
@@ -641,6 +649,8 @@ async def del_user_start(cb: MessageCallback, context: BaseContext):
 async def add_user_by_name(event: MessageCreated, context: BaseContext):
     msg = event.message
     username = msg.body.text if msg.body else ""
+    if not username:
+        return
     if utils.check_user_exists(username):
         await bot.send_message(user_id=msg.sender.user_id, text="Такие данные уже есть")
     else:
@@ -654,6 +664,8 @@ async def add_user_by_name(event: MessageCreated, context: BaseContext):
 async def del_user_by_name(event: MessageCreated, context: BaseContext):
     msg = event.message
     username = msg.body.text if msg.body else ""
+    if not username:
+        return
     if utils.check_user_exists(username):
         utils.delete(username)
         await bot.send_message(user_id=msg.sender.user_id, text=f"{utils.select()}")

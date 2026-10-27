@@ -12,7 +12,7 @@ API_MAX = 'f9LHodD0cOKu0YTYkXa00frjaHLSxJ313uof7PMhn4iQVRTgiPuXGnE68RxBmDyqBEZOH
 GROUP_ID_MAX = None
 
 # ID администраторов в MAX (узнать: python get_max_chats.py или команда /myid у бота)
-admins_max = [5485142636, 858672279]
+admins_max = [6253291, 6276257]
 
 # Список пользователей с доступом к боту в MAX (аналог pol, но с MAX-идентификаторами)
-pol_max = [5485142636, 858672279]
+pol_max = [6253291, 6276257]

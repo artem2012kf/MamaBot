@@ -1,0 +1,18 @@
+2026-10-26 12:12:08,714 - INFO - 2026-10-26 12:12:08 - User ID: 6276257 Username: None First Name: Артем - Action: Command: /start [MAX]
+2026-10-26 12:12:12,112 - INFO - 2026-10-26 12:12:12 - User ID: 6276257 Username: None First Name: Артем - Action: Кнопка я иду [MAX]
+2026-10-26 12:12:12,165 - WARNING - Не удалось ответить на callback: Ошибка от API: self.code=400 self.raw={'code': 'proto.payload', 'message': 'Invalid request. `message` or `notification` required'}
+2026-10-26 12:12:12,173 - WARNING - GROUP_ID_MAX не задан в config.py! Добавьте бота в групповой чат MAX и запустите get_max_chats.py
+2026-10-26 12:12:12,173 - WARNING - GROUP_ID_MAX не задан — список не отправлен
+2026-10-26 20:50:32,969 - INFO - 2026-10-26 20:50:32 - User ID: 6276257 Username: None First Name: Артем - Action: Command: /start [MAX]
+2026-10-26 20:50:49,899 - INFO - 2026-10-26 20:50:49 - User ID: 6276257 Username: None First Name: Артем - Action: Command: /admin [MAX]
+2026-10-26 20:50:56,704 - INFO - 2026-10-26 20:50:56 - User ID: 6276257 Username: None First Name: Артем - Action: Command: /admin1 [MAX]
+2026-10-26 20:50:59,032 - WARNING - Не удалось ответить на callback: Ошибка от API: self.code=400 self.raw={'code': 'proto.payload', 'message': 'Invalid request. `message` or `notification` required'}
+2026-10-26 20:52:04,974 - WARNING - Не удалось ответить на callback: Ошибка от API: self.code=400 self.raw={'code': 'proto.payload', 'message': 'Invalid request. `message` or `notification` required'}
+2026-10-26 20:52:16,171 - WARNING - Не удалось ответить на callback: Ошибка от API: self.code=400 self.raw={'code': 'proto.payload', 'message': 'Invalid request. `message` or `notification` required'}
+2026-10-26 20:52:31,656 - INFO - 2026-10-26 20:52:31 - User ID: 6276257 Username: None First Name: Артем - Action: Command: /start [MAX]
+2026-10-26 21:26:46,311 - WARNING - Ошибка соединения (Cannot connect to host platform-api.max.ru:443 ssl:default [getaddrinfo failed]), попытка 1, жду 0.4с
+2026-10-26 21:26:46,711 - WARNING - Ошибка соединения (Cannot connect to host platform-api.max.ru:443 ssl:default [getaddrinfo failed]), попытка 2, жду 1.1с
+2026-10-26 21:26:47,832 - WARNING - Ошибка соединения (Cannot connect to host platform-api.max.ru:443 ssl:default [getaddrinfo failed]), попытка 3, жду 0.3с
+2026-10-27 08:15:44,036 - WARNING - Ошибка соединения (Cannot connect to host platform-api.max.ru:443 ssl:default [getaddrinfo failed]), попытка 1, жду 0.3с
+2026-10-27 08:15:44,349 - WARNING - Ошибка соединения (Cannot connect to host platform-api.max.ru:443 ssl:default [getaddrinfo failed]), попытка 2, жду 1.2с
+2026-10-27 08:15:45,601 - WARNING - Ошибка соединения (Cannot connect to host platform-api.max.ru:443 ssl:default [getaddrinfo failed]), попытка 3, жду 0.9с

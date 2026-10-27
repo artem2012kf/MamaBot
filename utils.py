@@ -1,12 +1,18 @@
 import sqlite3
 import active
 
-connection = sqlite3.connect('sbor.db')
+connection = sqlite3.connect('sbor.db', timeout=15)
+# WAL-режим: одновременный доступ двух процессов (TG и MAX) без взаимных блокировок
+try:
+    connection.execute("PRAGMA journal_mode=WAL")
+except sqlite3.OperationalError:
+    pass
+connection.execute("PRAGMA busy_timeout=15000")
 cursor = connection.cursor()
 
-cursor.execute(''' 
+cursor.execute('''
 CREATE TABLE IF NOT EXISTS sbor(
-name TEXT NOT NULL, 
+name TEXT NOT NULL,
 gender TEXT NOT NULL
 )
 ''')
@@ -18,7 +24,7 @@ def usersdel():
 def check_user_exists(username):
     try:
         cursor.execute("SELECT name FROM sbor WHERE name = ?", (username,))
-        result = cursor.fetchone()
+        result = cursor.fetchall()  # дочитываем курсор, чтобы не держать блокировку чтения
         return bool(result)
     except Exception as e:
         print(f"Ошибка при проверке пользователя: {e}")
@@ -52,9 +58,9 @@ def delete_user_friends(user_name):
 def get_user_friends_count(user_name, gender_type):
     """Получить количество друзей определенного пола у пользователя"""
     friend_name = get_user_friend_name(user_name, gender_type)
-    cursor.execute("SELECT COUNT(*) FROM sbor WHERE name = ? AND gender = ?", 
+    cursor.execute("SELECT COUNT(*) FROM sbor WHERE name = ? AND gender = ?",
                   (friend_name, gender_type))
-    return cursor.fetchone()[0]
+    return cursor.fetchall()[0][0]
 
 def select():
     # Получаем все записи в порядке добавления
@@ -130,9 +136,9 @@ def get_user_friend_name(user_name, gender_type):
 def check_friend_exists(user_name, gender_type):
     """Проверяет, существует ли хотя бы один друг определенного пола у пользователя"""
     friend_name = get_user_friend_name(user_name, gender_type)
-    cursor.execute("SELECT COUNT(*) FROM sbor WHERE name = ? AND gender = ?", 
+    cursor.execute("SELECT COUNT(*) FROM sbor WHERE name = ? AND gender = ?",
                   (friend_name, gender_type))
-    return cursor.fetchone()[0] > 0
+    return cursor.fetchall()[0][0] > 0
 def get_next_friend_number(user_name, gender_type):
     """Получить следующий номер для друга пользователя"""
     cursor.execute("SELECT name FROM sbor WHERE name LIKE ? AND gender = ?", 
