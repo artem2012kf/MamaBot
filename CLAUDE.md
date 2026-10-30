@@ -24,7 +24,7 @@
 | Файл | Описание |
 |------|----------|
 | `main.py` | Telegram-бот (aiogram 2): обработчики, свой планировщик. |
-| `max_main.py` | MAX-бот на реальном API `maxapi`: `@dp.message_created(...)`, `@dp.message_callback(...)`, FSM через `context`/`StatesGroup`. Полный паритет с `main.py`: старт, запись/отмена, друзья, админ-панель, блокировки, оплата, FSM добавления по имени. Свой планировщик со сдвигом на 1 минуту относительно Telegram (кроме `scheduled_fin1` — она на минуту РАНЬШЕ, чтобы увидеть флаг «Отмена» до того, как Telegram-бот его удалит). |
+| `max_main.py` | MAX-бот на реальном API `maxapi`: `@dp.message_created(...)`, `@dp.message_callback(...)`, FSM через `context`/`StatesGroup`. Полный паритет с `main.py`: старт, запись/отмена, друзья, админ-панель, блокировки, оплата, FSM добавления по имени. Свой планировщик; расписание совпадает с `main.py` (без сдвига на минуту). |
 | `keyboards_max.py` | Клавиатуры для MAX: клавиатура — вложение `Attachment(INLINE_KEYBOARD)` с `ButtonsPayload` из `CallbackButton`. |
 | `config.py` | Токены `API` (Telegram) и `API_MAX` (MAX), `GROUP_ID` / `GROUP_ID_MAX`, `admins` / `admins_max`, `pol` / `pol_max`, `MAX_WOMEN`. |
 | `keyboards.py` | Inline- и Reply-клавиатуры для Telegram-бота. |

@@ -847,20 +847,19 @@ async def del1():
 async def register_scheduler():
     """Регистрация периодических задач MAX-бота.
 
-    Время сдвинуто на 1 минуту относительно Telegram-бота (main.py):
-    боты работают в разных процессах с общими базами SQLite, поэтому
-    одновременная запись в одну секунду может давать блокировки.
-    Исключение — scheduled_fin1: MAX проверяет флаг «Отмена» ДО Telegram-бота
-    (в 18:29/19:29 против 18:30/19:30), потому что Telegram удаляет флаг.
+    Расписание совпадает с Telegram-ботом (main.py): оповещения приходят
+    в обе группы одновременно. При отмене финального сообщения флаг
+    обрабатывают оба бота в одну минуту (порядок не гарантирован);
+    MAX-бот читает флаг, не удаляя его, удаляет флаг Telegram-бот.
     """
-    aioschedule.every().monday.at("09:01").do(del1)
-    aioschedule.every().friday.at("09:01").do(del1)
-    aioschedule.every().wednesday.at("08:01").do(sbor11)
-    aioschedule.every().saturday.at("08:01").do(sbor22)
-    aioschedule.every().sunday.at("18:29").do(scheduled_fin1)
-    aioschedule.every().thursday.at("19:29").do(scheduled_fin1)
-    aioschedule.every().sunday.at("18:36").do(spisok1)
-    aioschedule.every().thursday.at("19:36").do(spisok1)
+    aioschedule.every().monday.at("09:00").do(del1)
+    aioschedule.every().friday.at("09:00").do(del1)
+    aioschedule.every().wednesday.at("08:00").do(sbor11)
+    aioschedule.every().saturday.at("08:00").do(sbor22)
+    aioschedule.every().sunday.at("18:30").do(scheduled_fin1)
+    aioschedule.every().thursday.at("19:30").do(scheduled_fin1)
+    aioschedule.every().sunday.at("18:35").do(spisok1)
+    aioschedule.every().thursday.at("19:35").do(spisok1)
 
 
 async def scheduler_loop():
