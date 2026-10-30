@@ -523,9 +523,10 @@ async def handle_add_person(event: MessageCreated, context: BaseContext):
         return
 
     name = msg.body.text.strip()[1:].strip()
+    name, source = utils.parse_source(name, "max")
     await log_action(event, f"Запрос на добавление: {name}")
 
-    await context.update_data(name=name)
+    await context.update_data(name=name, source=source)
     await msg.answer(f"📝 Выберите пол для: {name}", attachments=[drug])
     await context.set_state(AddPersonState.waiting_gender)
 
@@ -538,11 +539,12 @@ async def process_gender_selection(cb: MessageCallback, context: BaseContext):
     await cb_dismiss(cb)
     data = await context.get_data()
     name = data.get("name", "")
+    source = data.get("source", "max")
     gender = "Муж" if cb.callback.payload == "+drug_boy" else "Дев"
 
     await log_action(cb, f"Выбран пол ({gender}) для: {name}")
 
-    utils.add(name, gender, "max")
+    utils.add(name, gender, source)
     await reply_to_cb(cb, f"✅ {name} ({gender}) успешно добавлен!")
     await send_updated_list(require_group_chat_id())
     logger.info(f"✅ Успешно добавлен: {name} | Пол: {gender}")
@@ -561,7 +563,7 @@ async def handle_remove_person(event: MessageCreated):
     await log_action(event, f"Запрос на удаление: {name}")
 
     if utils.check_user_exists(name):
-        utils.delete(name)
+        utils.delete_one(name)
         await msg.answer(f"❌ {name} удален из списка.")
         await send_updated_list(require_group_chat_id())
         logger.info(f"❌ Удален: {name} (по команде пользователя {sender.user_id})")

@@ -438,7 +438,8 @@ async def handle_add_person(message: types.Message, state: FSMContext):
     await log_action(message, f"Запрос на добавление: {message.text.strip()}")
     
     name = message.text.strip()[1:].strip()
-    await state.update_data(name=name)
+    name, source = utils.parse_source(name, "tg")
+    await state.update_data(name=name, source=source)
     
     await message.answer(f"📝 Выберите пол для: <b>{name}</b>", reply_markup=drug, parse_mode="HTML")
     await AddPersonState.waiting_gender.set()
@@ -449,11 +450,12 @@ async def process_gender_selection(call: types.CallbackQuery, state: FSMContext)
     await call.answer()
     data = await state.get_data()
     name = data['name']
+    source = data.get('source', 'tg')
     gender = "Муж" if call.data == "+drug_boy" else "Дев"
     
     await log_action(call, f"Выбран пол ({gender}) для: {name}")
     
-    utils.add(name, gender, "tg")
+    utils.add(name, gender, source)
     await call.message.answer(f"✅ <b>{name}</b> ({gender}) успешно добавлен!", parse_mode="HTML")
     await send_updated_list(GROUP_ID)
     logger.info(f"✅ Успешно добавлен: {name} | Пол: {gender}")
@@ -470,7 +472,7 @@ async def handle_remove_person(message: types.Message):
     await log_action(message, f"Запрос на удаление: {message.text.strip()}")
     
     if utils.check_user_exists(name):
-        utils.delete(name)
+        utils.delete_one(name)
         await message.answer(f"❌ <b>{name}</b> удален из списка.", parse_mode="HTML")
         await send_updated_list(GROUP_ID)
         logger.info(f"❌ Удален: {name} (по команде пользователя {message.from_user.id})")

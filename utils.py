@@ -33,6 +33,29 @@ SOURCE_ICONS = {
     "max": "🟣",  # MAX
 }
 
+# Суффикс источника в команде "+ Имя": "+Иван макс" или "+Иван тг"
+SOURCE_SUFFIXES = {
+    "макс": "max",
+    "max": "max",
+    "тг": "tg",
+    "tg": "tg",
+    "телеграм": "tg",
+    "telegram": "tg",
+}
+
+
+def parse_source(text, default="tg"):
+    """Выделить источник из конца имени: "Иван макс" -> ("Иван", "max").
+
+    Если после имени нет "макс"/"тг" (и т.п.), возвращается default.
+    """
+    parts = text.split()
+    if len(parts) > 1:
+        suffix = parts[-1].casefold()
+        if suffix in SOURCE_SUFFIXES:
+            return " ".join(parts[:-1]), SOURCE_SUFFIXES[suffix]
+    return text, default
+
 
 def _migrate_sbor_table():
     """Добавить столбец source в sbor, если его ещё нет (старые базы)."""
@@ -110,6 +133,21 @@ def set_state(key, value):
 def delete(username):
     cursor.execute('DELETE FROM sbor WHERE name = ?', (username,))
     connection.commit()
+
+
+def delete_one(username):
+    """Удалить только одну запись с указанным именем (первую).
+
+    Используется командой "- Имя": она не должна удалять всех тёзок.
+    """
+    cursor.execute("SELECT rowid FROM sbor WHERE name = ? LIMIT 1", (username,))
+    rows = cursor.fetchall()
+    if not rows:
+        return False
+    cursor.execute("DELETE FROM sbor WHERE rowid = ?", (rows[0][0],))
+    connection.commit()
+    print(f"Удалена одна запись: {username}")
+    return True
 
 def delete_user_friends(user_name):
     """Удалить всех друзей пользователя"""
