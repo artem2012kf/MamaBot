@@ -32,7 +32,9 @@ def _venv_python(venv_dir: str) -> str:
 
 
 def _requirements_path(name: str) -> str:
-    return os.path.join(SCRIPT_DIR, f"requirements-{name}.txt")
+    # venv называется .venv_telegram, а файл зависимостей — requirements-tg.txt
+    file_name = "tg" if name == "telegram" else name
+    return os.path.join(SCRIPT_DIR, f"requirements-{file_name}.txt")
 
 
 def _ensure_environment(name: str) -> str:

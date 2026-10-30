@@ -1,4 +1,5 @@
 # MAX-бот (maxapi, pydantic v2). Python 3.10+.
 maxapi
 aioschedule
-aiohttp
+# 3.10.11 имеет готовые manylinux-wheels для Python 3.12 и не требует сборки
+aiohttp==3.10.11
