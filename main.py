@@ -720,28 +720,6 @@ async def del_user_by_name(message: types.Message, state: FSMContext):
         await bot.send_message(chat_id=message.from_user.id, text="Таких данных нет.")
     await state.finish()
 
-# ---------- Пробное оповещение (пятница 19:30 ЕКБ) ----------
-async def probe():
-    """Отправить тестовое сообщение в TG-группу."""
-    await bot.send_message(GROUP_ID, "🔔 Проверка: оповещение работает (пятница 19:30 ЕКБ)")
-
-
-async def probe_loop():
-    """Одноразовая проверка в пятницу 19:30-19:34 по Екатеринбургу."""
-    while True:
-        now = datetime.now(ekaterinburg_tz)
-        if (
-            now.weekday() == 4
-            and now.hour == 19
-            and 30 <= now.minute <= 34
-            and not utils.get_state("probe_sent_tg")
-        ):
-            await probe()
-            utils.set_state("probe_sent_tg", now.date().isoformat())
-            logger.info("Пробное оповещение (TG) отправлено")
-        await asyncio.sleep(5)
-
-
 # время -2 часа от тюмени
 async def scheduler():
     aioschedule.every().monday.at("09:00").do(del1)
@@ -759,7 +737,6 @@ async def scheduler():
 
 async def on_startup(dp):
     asyncio.create_task(scheduler())
-    asyncio.create_task(probe_loop())
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True, on_startup=on_startup)

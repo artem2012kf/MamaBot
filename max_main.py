@@ -12,7 +12,7 @@
 import asyncio
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 import aioschedule
 
@@ -874,42 +874,10 @@ async def scheduler_loop():
         await asyncio.sleep(1)
 
 
-# ---------- Пробное оповещение (пятница 19:30 ЕКБ) ----------
-EKB_TZ = timezone(timedelta(hours=5))
-
-
-async def probe():
-    """Отправить тестовое сообщение в MAX-группу."""
-    chat_id = require_group_chat_id()
-    if chat_id is None:
-        return
-    await bot.send_message(
-        chat_id=chat_id,
-        text="🔔 Проверка: оповещение работает (пятница 19:30 ЕКБ)",
-    )
-
-
-async def probe_loop():
-    """Одноразовая проверка в пятницу 19:30-19:34 по Екатеринбургу."""
-    while True:
-        now = datetime.now(EKB_TZ)
-        if (
-            now.weekday() == 4
-            and now.hour == 19
-            and 30 <= now.minute <= 34
-            and not utils.get_state("probe_sent_max")
-        ):
-            await probe()
-            utils.set_state("probe_sent_max", now.date().isoformat())
-            logger.info("Пробное оповещение (MAX) отправлено")
-        await asyncio.sleep(5)
-
-
 async def run_max():
     """Запуск MAX-бота отдельно (python max_main.py)."""
     asyncio.create_task(register_scheduler())
     asyncio.create_task(scheduler_loop())
-    asyncio.create_task(probe_loop())
     await dp.start_polling(bot, skip_updates=True)
 
 
