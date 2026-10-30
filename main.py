@@ -660,19 +660,19 @@ async def start(call: types.CallbackQuery):
     await call.answer()
 
 @dp.callback_query_handler(text="Добавить пользователя")
-async def buy1(call: types.CallbackQuery, state: FSMContext):
+async def add_user_start(call: types.CallbackQuery, state: FSMContext):
     await call.message.answer('Напишите имя пользователя')
     await state.set_state(ShowList.waiting) # Correctly set the state
     await call.answer()
 
 @dp.callback_query_handler(text="Удалить пользователя")
-async def buy1(call: types.CallbackQuery, state: FSMContext):
+async def del_user_start(call: types.CallbackQuery, state: FSMContext):
     await call.message.answer('Напишите имя пользователя')
     await state.set_state(ShowList.waiting2)
     await call.answer()
 
 @dp.message_handler(state=ShowList.waiting) # Remove the () - use the State object directly
-async def buy31(message: types.Message, state: FSMContext):
+async def add_user_by_name(message: types.Message, state: FSMContext):
     await state.update_data(username=message.text)
     data = await state.get_data()
     username = data['username']
@@ -684,7 +684,7 @@ async def buy31(message: types.Message, state: FSMContext):
     await state.finish()
 
 @dp.message_handler(state=ShowList.waiting2) # Call the function
-async def buy31(message: types.Message, state: FSMContext):
+async def del_user_by_name(message: types.Message, state: FSMContext):
     await state.update_data(username=message.text)
     data = await state.get_data()
     username = data['username']
