@@ -12,6 +12,7 @@ venv не создаётся — используется указанный и�
 Остановка — Ctrl+C (или SIGTERM от панели хостинга).
 """
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -37,11 +38,55 @@ def _requirements_path(name: str) -> str:
     return os.path.join(SCRIPT_DIR, f"requirements-{file_name}.txt")
 
 
+def _venv_python_version(venv_dir: str) -> tuple[int, int] | None:
+    """Версия Python, которым создан venv (из pyvenv.cfg)."""
+    config = os.path.join(venv_dir, "pyvenv.cfg")
+    if not os.path.exists(config):
+        return None
+    try:
+        with open(config, encoding="utf-8") as file:
+            for line in file:
+                if line.strip().startswith("version"):
+                    value = line.split("=", 1)[1].strip()
+                    parts = value.split(".")
+                    return int(parts[0]), int(parts[1])
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
+
+
+def _venv_usable(python: str, venv_dir: str) -> bool:
+    """venv создан текущим Python и в нём есть pip."""
+    current = (sys.version_info.major, sys.version_info.minor)
+    installed = _venv_python_version(venv_dir)
+    if installed != current:
+        return False
+    try:
+        result = subprocess.run(
+            [python, "-m", "pip", "--version"],
+            capture_output=True,
+            timeout=30,
+        )
+        return result.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def _ensure_environment(name: str) -> str:
     """Создать venv с зависимостями, если его ещё нет. Вернуть путь к python."""
     venv_dir = os.path.join(SCRIPT_DIR, f".venv_{name}")
     python = _venv_python(venv_dir)
     requirements = _requirements_path(name)
+
+    if os.path.exists(python) and not _venv_usable(python, venv_dir):
+        # Образ хостинга сменился (например, 3.12 -> 3.11) или venv побился:
+        # старый venv несовместим, создаём заново.
+        print(
+            f"[run_both] окружение {name} несовместимо с текущим Python "
+            f"{sys.version_info.major}.{sys.version_info.minor} — пересоздаю",
+            flush=True,
+        )
+        shutil.rmtree(venv_dir, ignore_errors=True)
 
     if not os.path.exists(python):
         print(f"[run_both] создаю окружение {name}: {venv_dir}", flush=True)
