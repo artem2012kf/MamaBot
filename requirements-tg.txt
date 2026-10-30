@@ -1,7 +1,8 @@
-# Telegram-бот (aiogram 2, pydantic v1). Python 3.10+.
+# Telegram-бот (aiogram 2, pydantic v1). Python 3.10/3.11.
 aiogram==2.25.1
 aioschedule
 pytz
 pydantic==1.10.15
-# 3.10.11 имеет готовые manylinux-wheels для Python 3.12 и не требует сборки
-aiohttp==3.10.11
+# aiogram 2.25.1 требует aiohttp<3.9; у 3.8.6 есть wheels только для
+# Python 3.10/3.11 (для 3.12 сборка из исходников падает).
+aiohttp==3.8.6
