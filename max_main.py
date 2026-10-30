@@ -445,6 +445,63 @@ async def remove_female_friend(cb: MessageCallback):
 
 
 # ---------- Добавление/удаление человека текстом "+ Имя" / "- Имя" ----------
+# ---------- Кнопки в личных сообщениях (pm_*) ----------
+# Вызывают те же действия, что и групповые кнопки, но список дополнительно
+# приходит в личный чат (группа обновляется внутри самих функций).
+@dp.message_callback(F.callback.payload == "pm_я иду")
+async def pm_buy(cb: MessageCallback):
+    user_id = cb.callback.user.user_id
+    if user_id not in pol_max or active.check_user_in_block(user_id, source="max"):
+        return
+    await buy1(cb)
+    await reply_to_cb(cb, utils.select())
+
+
+@dp.message_callback(F.callback.payload == "pm_я не иду")
+async def pm_not_going(cb: MessageCallback):
+    user_id = cb.callback.user.user_id
+    if user_id not in pol_max or active.check_user_in_block(user_id, source="max"):
+        return
+    await not_going(cb)
+    await reply_to_cb(cb, utils.select())
+
+
+@dp.message_callback(F.callback.payload == "pm_+ муж")
+async def pm_add_male_friend(cb: MessageCallback):
+    user_id = cb.callback.user.user_id
+    if user_id not in pol_max or active.check_user_in_block(user_id, source="max"):
+        return
+    await add_male_friend(cb)
+    await reply_to_cb(cb, utils.select())
+
+
+@dp.message_callback(F.callback.payload == "pm_- муж")
+async def pm_remove_male_friend(cb: MessageCallback):
+    user_id = cb.callback.user.user_id
+    if user_id not in pol_max or active.check_user_in_block(user_id, source="max"):
+        return
+    await remove_male_friend(cb)
+    await reply_to_cb(cb, utils.select())
+
+
+@dp.message_callback(F.callback.payload == "pm_+ дев")
+async def pm_add_female_friend(cb: MessageCallback):
+    user_id = cb.callback.user.user_id
+    if user_id not in pol_max or active.check_user_in_block(user_id, source="max"):
+        return
+    await add_female_friend(cb)
+    await reply_to_cb(cb, utils.select())
+
+
+@dp.message_callback(F.callback.payload == "pm_- дев")
+async def pm_remove_female_friend(cb: MessageCallback):
+    user_id = cb.callback.user.user_id
+    if user_id not in pol_max or active.check_user_in_block(user_id, source="max"):
+        return
+    await remove_female_friend(cb)
+    await reply_to_cb(cb, utils.select())
+
+
 @dp.message_created(TextStartsWith("+"), states=[None])
 async def handle_add_person(event: MessageCreated, context: BaseContext):
     msg = event.message

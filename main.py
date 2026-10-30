@@ -365,6 +365,57 @@ async def remove_female_friend(call: types.CallbackQuery):
     await send_updated_list(GROUP_ID)
 
 
+# ---------- Кнопки в личных сообщениях (pm_*) ----------
+# Вызывают те же действия, что и групповые кнопки, но список дополнительно
+# приходит в личный чат (группа обновляется внутри самих функций).
+@dp.callback_query_handler(text='pm_я иду')
+async def pm_buy(call: types.CallbackQuery):
+    if call.from_user.id not in pol or active.check_user_in_block(call.from_user.id):
+        return
+    await buy1(call)
+    await call.message.answer(utils.select(), parse_mode="Markdown")
+
+
+@dp.callback_query_handler(text='pm_я не иду')
+async def pm_not_going(call: types.CallbackQuery):
+    if call.from_user.id not in pol or active.check_user_in_block(call.from_user.id):
+        return
+    await not_going(call)
+    await call.message.answer(utils.select(), parse_mode="Markdown")
+
+
+@dp.callback_query_handler(text='pm_+ муж')
+async def pm_add_male_friend(call: types.CallbackQuery):
+    if call.from_user.id not in pol or active.check_user_in_block(call.from_user.id):
+        return
+    await add_male_friend(call)
+    await call.message.answer(utils.select(), parse_mode="Markdown")
+
+
+@dp.callback_query_handler(text='pm_- муж')
+async def pm_remove_male_friend(call: types.CallbackQuery):
+    if call.from_user.id not in pol or active.check_user_in_block(call.from_user.id):
+        return
+    await remove_male_friend(call)
+    await call.message.answer(utils.select(), parse_mode="Markdown")
+
+
+@dp.callback_query_handler(text='pm_+ дев')
+async def pm_add_female_friend(call: types.CallbackQuery):
+    if call.from_user.id not in pol or active.check_user_in_block(call.from_user.id):
+        return
+    await add_female_friend(call)
+    await call.message.answer(utils.select(), parse_mode="Markdown")
+
+
+@dp.callback_query_handler(text='pm_- дев')
+async def pm_remove_female_friend(call: types.CallbackQuery):
+    if call.from_user.id not in pol or active.check_user_in_block(call.from_user.id):
+        return
+    await remove_female_friend(call)
+    await call.message.answer(utils.select(), parse_mode="Markdown")
+
+
 @dp.message_handler(lambda msg: msg.text.strip().startswith('+') and len(msg.text.strip()) > 1, state=None)
 async def handle_add_person(message: types.Message, state: FSMContext):
     if message.from_user.id not in pol:
