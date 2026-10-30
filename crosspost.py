@@ -37,7 +37,51 @@ def spawn(coro) -> None:
     task.add_done_callback(_background_tasks.discard)
 
 
-async def send_telegram_message(text: str) -> int | None:
+# Кнопки анонса сбора: подписи и payload одинаковы для TG и MAX.
+START_BUTTONS = [
+    [("Я иду", "Я иду"), ("Я не иду", "Я не иду")],
+    [("+ Мужчина", "+ Мужчина"), ("- Мужчина", "- Мужчина")],
+    [("+ Девушка", "+ Девушка"), ("- Девушка", "- Девушка")],
+]
+
+# Тексты оповещений — общие для обоих ботов, чтобы не расходились.
+SBOR_THURSDAY_TEXT = "Всем привет! Начинаем сбор на тренировку в четверг 19:00"
+SBOR_SUNDAY_TEXT = "Всем привет! Начинаем сбор на тренировку в воскресенье 18:00"
+FIN_TEXT = (
+    "Всем спасибо за игру! Не забываем про оплату 😎.\n"
+    "+79222694226\n(Сбер, ВТБ, Альфа) 170 руб."
+)
+
+
+def _telegram_markup(buttons):
+    """Inline-клавиатура для Telegram API."""
+    return {
+        "inline_keyboard": [
+            [{"text": text, "callback_data": payload} for text, payload in row]
+            for row in buttons
+        ]
+    }
+
+
+def _max_attachments(buttons):
+    """Вложение inline_keyboard для MAX API."""
+    return [
+        {
+            "type": "inline_keyboard",
+            "payload": {
+                "buttons": [
+                    [
+                        {"type": "callback", "text": text, "payload": payload}
+                        for text, payload in row
+                    ]
+                    for row in buttons
+                ]
+            },
+        }
+    ]
+
+
+async def send_telegram_message(text: str, buttons=None) -> int | None:
     """Отправить сообщение в Telegram-группу, вернуть message_id."""
     if not GROUP_ID:
         logger.warning("GROUP_ID не задан — отправка в Telegram пропущена")
@@ -45,6 +89,8 @@ async def send_telegram_message(text: str) -> int | None:
 
     url = f"{TELEGRAM_API_URL}/bot{API}/sendMessage"
     payload = {"chat_id": GROUP_ID, "text": text, "parse_mode": "Markdown"}
+    if buttons:
+        payload["reply_markup"] = _telegram_markup(buttons)
     try:
         async with aiohttp.ClientSession(timeout=REQUEST_TIMEOUT) as session:
             async with session.post(url, json=payload) as response:
@@ -91,7 +137,7 @@ async def delete_telegram_message(message_id: int | str) -> None:
         )
 
 
-async def send_max_message(text: str) -> str | None:
+async def send_max_message(text: str, buttons=None) -> str | None:
     """Отправить сообщение в MAX-группу, вернуть message_id (mid)."""
     if GROUP_ID_MAX is None:
         logger.warning("GROUP_ID_MAX не задан — отправка в MAX пропущена")
@@ -99,7 +145,10 @@ async def send_max_message(text: str) -> str | None:
 
     headers = {"Authorization": API_MAX}
     params = {"chat_id": GROUP_ID_MAX}
-    payload = {"text": text, "attachments": []}
+    payload = {
+        "text": text,
+        "attachments": _max_attachments(buttons) if buttons else [],
+    }
     try:
         async with aiohttp.ClientSession(timeout=REQUEST_TIMEOUT) as session:
             async with session.post(

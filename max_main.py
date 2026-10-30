@@ -12,7 +12,7 @@
 import asyncio
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import aioschedule
 
@@ -683,14 +683,14 @@ async def before_training(cb: MessageCallback):
 @dp.message_callback(F.callback.payload == "В четверг")
 async def thursday(cb: MessageCallback):
     await reply_to_cb(cb, "Действие выполнено")
-    await sbor11()
+    await sbor11(send_other=True)
     await cb_dismiss(cb)
 
 
 @dp.message_callback(F.callback.payload == "В воскресенье")
 async def sunday(cb: MessageCallback):
     await reply_to_cb(cb, "Действие выполнено")
-    await sbor22()
+    await sbor22(send_other=True)
     await cb_dismiss(cb)
 
 
@@ -703,7 +703,7 @@ async def after_training(cb: MessageCallback):
 @dp.message_callback(F.callback.payload == "Отправить")
 async def send_now(cb: MessageCallback):
     await reply_to_cb(cb, "Действие выполнено")
-    await fin1()
+    await fin1(send_other=True)
     await send_payment_request_to_admins()
     await cb_dismiss(cb)
 
@@ -771,28 +771,34 @@ async def repeat(event: MessageCreated):
 
 
 # ---------- Планировщик: рассылки (вызываются из run_both.py) ----------
-async def sbor11():
+async def sbor11(send_other=False):
     chat_id = require_group_chat_id()
     if chat_id is None:
         return
-    await bot.send_message(chat_id=chat_id, text="Всем привет! Начинаем сбор на тренировку в четверг 19:00", attachments=[start_kb])
+    text = crosspost.SBOR_THURSDAY_TEXT
+    await bot.send_message(chat_id=chat_id, text=text, attachments=[start_kb])
+    if send_other:
+        crosspost.spawn(crosspost.send_telegram_message(text, buttons=crosspost.START_BUTTONS))
 
 
-async def sbor22():
+async def sbor22(send_other=False):
     chat_id = require_group_chat_id()
     if chat_id is None:
         return
-    await bot.send_message(chat_id=chat_id, text="Всем привет! Начинаем сбор на тренировку в воскресенье 18:00", attachments=[start_kb])
+    text = crosspost.SBOR_SUNDAY_TEXT
+    await bot.send_message(chat_id=chat_id, text=text, attachments=[start_kb])
+    if send_other:
+        crosspost.spawn(crosspost.send_telegram_message(text, buttons=crosspost.START_BUTTONS))
 
 
-async def fin1():
+async def fin1(send_other=False):
     chat_id = require_group_chat_id()
     if chat_id is None:
         return
-    await bot.send_message(
-        chat_id=chat_id,
-        text="Всем спасибо за игру! Не забываем про оплату 😎.\n+79222694226\n(Сбер, ВТБ, Альфа) 170 руб.",
-    )
+    text = crosspost.FIN_TEXT
+    await bot.send_message(chat_id=chat_id, text=text)
+    if send_other:
+        crosspost.spawn(crosspost.send_telegram_message(text))
 
 
 async def scheduled_fin1():
@@ -868,10 +874,42 @@ async def scheduler_loop():
         await asyncio.sleep(1)
 
 
+# ---------- Пробное оповещение (пятница 19:30 ЕКБ) ----------
+EKB_TZ = timezone(timedelta(hours=5))
+
+
+async def probe():
+    """Отправить тестовое сообщение в MAX-группу."""
+    chat_id = require_group_chat_id()
+    if chat_id is None:
+        return
+    await bot.send_message(
+        chat_id=chat_id,
+        text="🔔 Проверка: оповещение работает (пятница 19:30 ЕКБ)",
+    )
+
+
+async def probe_loop():
+    """Одноразовая проверка в пятницу 19:30-19:34 по Екатеринбургу."""
+    while True:
+        now = datetime.now(EKB_TZ)
+        if (
+            now.weekday() == 4
+            and now.hour == 19
+            and 30 <= now.minute <= 34
+            and not utils.get_state("probe_sent_max")
+        ):
+            await probe()
+            utils.set_state("probe_sent_max", now.date().isoformat())
+            logger.info("Пробное оповещение (MAX) отправлено")
+        await asyncio.sleep(5)
+
+
 async def run_max():
     """Запуск MAX-бота отдельно (python max_main.py)."""
     asyncio.create_task(register_scheduler())
     asyncio.create_task(scheduler_loop())
+    asyncio.create_task(probe_loop())
     await dp.start_polling(bot, skip_updates=True)
 
 
