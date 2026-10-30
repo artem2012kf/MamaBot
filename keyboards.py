@@ -1,12 +1,19 @@
 from aiogram.types import ReplyKeyboardRemove, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
-# Клавиатура для группы: только запись/отмена. Добавление/удаление друзей
-# доступно только в личных сообщениях (start_kb_private).
+# Новая клавиатура под старт
 start_kb = InlineKeyboardMarkup(
     inline_keyboard=[
     [
         InlineKeyboardButton(text='Я иду', callback_data='Я иду'),
         InlineKeyboardButton(text='Я не иду', callback_data='Я не иду'),
+    ],
+    [
+        InlineKeyboardButton(text='+ Мужчина', callback_data='+ Мужчина'),
+        InlineKeyboardButton(text='- Мужчина', callback_data='- Мужчина'),
+    ],
+    [
+        InlineKeyboardButton(text='+ Девушка', callback_data='+ Девушка'),
+        InlineKeyboardButton(text='- Девушка', callback_data='- Девушка'),
     ],
 ])
 
