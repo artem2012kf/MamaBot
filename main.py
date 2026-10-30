@@ -286,8 +286,6 @@ from config import MAX_WOMEN
 
 @dp.callback_query_handler(text="+ Мужчина")
 async def add_male_friend(call: types.CallbackQuery):
-    if not is_private_chat(call):
-        return
     if await check_and_handle_block(call):
         return
     
@@ -310,8 +308,6 @@ async def add_male_friend(call: types.CallbackQuery):
 
 @dp.callback_query_handler(text="+ Девушка")
 async def add_female_friend(call: types.CallbackQuery):
-    if not is_private_chat(call):
-        return
     if await check_and_handle_block(call):
         return
     
@@ -335,8 +331,6 @@ async def add_female_friend(call: types.CallbackQuery):
 
 @dp.callback_query_handler(text="- Мужчина")
 async def remove_male_friend(call: types.CallbackQuery):
-    if not is_private_chat(call):
-        return
     if await check_and_handle_block(call):
         return
     
@@ -362,8 +356,6 @@ async def remove_male_friend(call: types.CallbackQuery):
 
 @dp.callback_query_handler(text="- Девушка")
 async def remove_female_friend(call: types.CallbackQuery):
-    if not is_private_chat(call):
-        return
     if await check_and_handle_block(call):
         return
     
@@ -442,8 +434,6 @@ async def pm_remove_female_friend(call: types.CallbackQuery):
 async def handle_add_person(message: types.Message, state: FSMContext):
     if message.from_user.id not in pol:
         return
-    if not is_private_chat(message):
-        return
         
     await log_action(message, f"Запрос на добавление: {message.text.strip()}")
     
@@ -456,8 +446,6 @@ async def handle_add_person(message: types.Message, state: FSMContext):
         
 @dp.callback_query_handler(lambda c: c.data in ['+drug_boy', '+drug_girl'], state=AddPersonState.waiting_gender)
 async def process_gender_selection(call: types.CallbackQuery, state: FSMContext):
-    if not is_private_chat(call):
-        return
     await call.answer()
     data = await state.get_data()
     name = data['name']
@@ -476,8 +464,6 @@ async def process_gender_selection(call: types.CallbackQuery, state: FSMContext)
 @dp.message_handler(lambda msg: msg.text.strip().startswith('-') and len(msg.text.strip()) > 1, state=None)
 async def handle_remove_person(message: types.Message):
     if message.from_user.id not in pol:
-        return
-    if not is_private_chat(message):
         return
         
     name = message.text.strip()[1:].strip()

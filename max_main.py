@@ -399,8 +399,6 @@ async def not_going(cb: MessageCallback):
 # ---------- Управление друзьями ----------
 @dp.message_callback(F.callback.payload == "+ Мужчина")
 async def add_male_friend(cb: MessageCallback):
-    if not is_private_event(cb):
-        return
     user = cb.callback.user
     if await check_and_handle_block_user(user.user_id, cb):
         return
@@ -416,8 +414,6 @@ async def add_male_friend(cb: MessageCallback):
 
 @dp.message_callback(F.callback.payload == "+ Девушка")
 async def add_female_friend(cb: MessageCallback):
-    if not is_private_event(cb):
-        return
     user = cb.callback.user
     if await check_and_handle_block_user(user.user_id, cb):
         return
@@ -433,8 +429,6 @@ async def add_female_friend(cb: MessageCallback):
 
 @dp.message_callback(F.callback.payload == "- Мужчина")
 async def remove_male_friend(cb: MessageCallback):
-    if not is_private_event(cb):
-        return
     user = cb.callback.user
     if await check_and_handle_block_user(user.user_id, cb):
         return
@@ -450,8 +444,6 @@ async def remove_male_friend(cb: MessageCallback):
 
 @dp.message_callback(F.callback.payload == "- Девушка")
 async def remove_female_friend(cb: MessageCallback):
-    if not is_private_event(cb):
-        return
     user = cb.callback.user
     if await check_and_handle_block_user(user.user_id, cb):
         return
@@ -529,8 +521,6 @@ async def handle_add_person(event: MessageCreated, context: BaseContext):
     sender = msg.sender
     if sender is None or sender.user_id not in pol_max:
         return
-    if not is_private_event(event):
-        return
 
     name = msg.body.text.strip()[1:].strip()
     await log_action(event, f"Запрос на добавление: {name}")
@@ -545,8 +535,6 @@ async def handle_add_person(event: MessageCreated, context: BaseContext):
     states=[AddPersonState.waiting_gender],
 )
 async def process_gender_selection(cb: MessageCallback, context: BaseContext):
-    if not is_private_event(cb):
-        return
     await cb_dismiss(cb)
     data = await context.get_data()
     name = data.get("name", "")
@@ -567,8 +555,6 @@ async def handle_remove_person(event: MessageCreated):
     msg = event.message
     sender = msg.sender
     if sender is None or sender.user_id not in pol_max:
-        return
-    if not is_private_event(event):
         return
 
     name = msg.body.text.strip()[1:].strip()
