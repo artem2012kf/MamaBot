@@ -1,0 +1,4 @@
+# MAX-бот (maxapi, pydantic v2). Python 3.10+.
+maxapi
+aioschedule
+aiohttp

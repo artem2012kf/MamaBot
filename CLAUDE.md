@@ -15,7 +15,7 @@
 - **ВАЖНО: конфликт зависимостей** — aiogram 2.x требует pydantic v1, maxapi требует pydantic v2, поэтому боты не могут жить в одном интерпретаторе и запускаются **двумя отдельными процессами** (см. `run_both.py`).
 - **asyncio**, **aioschedule** — планировщик периодических задач (свой в каждом процессе).
 - **SQLite** — две общие базы, доступ из обоих процессов. Базы переведены в **WAL-режим** (читатели не блокируют писателей), `busy_timeout=15с`; все SELECT читаются через `fetchall()` — незакрытый курсор с `fetchone()` держит shared-lock навсегда и вешает базу для чужих процессов. **Не открывать базы в DB Browser for SQLite при работающих ботах** — он держит блокировку записи:
-  - `sbor.db` — временная таблица с участниками и их друзьями.
+  - `sbor.db` — временная таблица с участниками, их друзьями и источником записи (`source`: `tg`/`max`).
   - `database.db` — основная таблица `Users` (id, username, first_name, gender, block).
 - **logging** — лог в файл `bot.log` (общий, режим добавления).
 - **pytz** — часовой пояс `Asia/Yekaterinburg`.
@@ -28,18 +28,22 @@
 | `keyboards_max.py` | Клавиатуры для MAX: клавиатура — вложение `Attachment(INLINE_KEYBOARD)` с `ButtonsPayload` из `CallbackButton`. |
 | `config.py` | Токены `API` (Telegram) и `API_MAX` (MAX), `GROUP_ID` / `GROUP_ID_MAX`, `admins` / `admins_max`, `pol` / `pol_max`, `MAX_WOMEN`. |
 | `keyboards.py` | Inline- и Reply-клавиатуры для Telegram-бота. |
-| `utils.py` | Работа с таблицей `sbor.db`: добавление, удаление, проверка существования, формирование списка участников. |
+| `utils.py` | Работа с таблицей `sbor.db`: добавление (с источником `source`), удаление, проверка существования, формирование списка участников со значком мессенджера (✈️ Telegram / 🟣 MAX). |
 | `active.py` | Работа с таблицей `Users` (`database.db`): добавление пользователя (`source="tg"/"max"` — ID пишется в `id_tg`/`id_max`, имя в `first_name_tg`/`first_name_max`), вывод списка (оба ID с именами), блокировка/разблокировка (по любому из ID), получение пола. При импорте автоматически мигрирует старые схемы (`id` -> `id_tg`, `first_name` -> `first_name_tg` + новые столбцы). |
-| `run_both.py` | Супервизор: запускает `main.py` и `max_main.py` двумя процессами, перезапускает при падении. Переменные окружения `TG_PYTHON` и `MAX_PYTHON` задают разные интерпретаторы (venv) для каждого бота. |
+| `run_both.py` | Супервизор: запускает `main.py` и `max_main.py` двумя процессами, перезапускает при падении. Если `TG_PYTHON`/`MAX_PYTHON` не заданы, сам создаёт изолированные venv `.venv_tg` и `.venv_max` по `requirements-tg.txt`/`requirements-max.txt` — так оба бота работают в одном контейнере хостинга с общей `sbor.db`/`database.db`. |
+| `requirements-tg.txt` | Зависимости Telegram-бота (aiogram 2, pydantic 1, aioschedule, pytz, aiohttp). Python 3.10+. |
+| `requirements-max.txt` | Зависимости MAX-бота (maxapi, pydantic 2, aioschedule, aiohttp). Python 3.10+. |
 | `get_max_chats.py` | Выводит чаты бота MAX — чтобы узнать `GROUP_ID_MAX`, ID админов и пользователей. |
+| `crosspost.py` | Двусторонний кросс-пост списка сбора: при событии в Telegram обновляет список и в TG-, и в MAX-группе (и наоборот). Чужой мессенджер вызывается напрямую через HTTP API (`api.telegram.org` / `platform-api.max.ru`), т.к. aiogram 2 и maxapi несовместимы в одном процессе. ID последних сообщений хранятся в `bot_state` (`sbor.db`); отправка выполняется в фоне (`asyncio.create_task`), чтобы недоступность чужого API не блокировала обработчик. |
 | `shared/logger.py` | Общий логгер (bot.log, режим добавления). |
 | `bot.log` | Файл журнала, в который записываются действия пользователей и ошибки. |
 | `database.db` | SQLite-файл, таблица `Users(id_tg, id_max, username, first_name_tg, first_name_max, gender, block)`: Telegram-бот работает с `id_tg`/`first_name_tg`, MAX-бот — с `id_max`/`first_name_max`; у MAX-пользователей `username` пустой. Бэкапы: `database.db.bak_2026-10-26` (исходная), `database.db.bak_2026-10-26_v2` (после разделения ID). |
-| `sbor.db` | SQLite-файл, содержит таблицу `sbor` (участники и их друзья). |
+| `sbor.db` | SQLite-файл, содержит таблицу `sbor` (участники, их друзья и источник записи `source`: `tg`/`max`), а также служебную таблицу `bot_state` (ID последних сообщений со списком в группах TG/MAX — нужно для кросс-поста). В списке сбора источник показывается значком перед именем: ✈️ — Telegram, 🟣 — MAX (старые записи без `source` — без значка). Миграция `ALTER TABLE ... ADD COLUMN source` выполняется автоматически при импорте `utils.py`. |
 
 ## Основные функции (Telegram и MAX)
 - **Регистрация пользователя** – при `/start` вызывается `active.add_user`: Telegram-бот пишет ID в `id_tg` (+username), MAX-бот — в `id_max` (username в MAX отсутствует).
-- **Запись на тренировку** – обработчики `buy1` (callback `Я иду`) добавляют запись в `sbor.db` через `utils.add`.
+- **Запись на тренировку** – обработчики `buy1` (callback `Я иду`) добавляют запись в `sbor.db` через `utils.add(username, gender, source)`: Telegram-бот передаёт `source="tg"`, MAX-бот — `source="max"`. Тот же источник указывается при записи друзей и добавлении по имени `+ Имя`.
+- **Обновление списка** – после любого изменения `send_updated_list` переотправляет список в своей группе и через `crosspost.py` — во вторую группу (TG ↔ MAX).
 - **Отмена записи** – `not_going` удаляет запись из `sbor.db`.
 - **Управление друзьями** – кнопки «+ Мужчина», «- Мужчина», «+ Девушка», «- Девушка» добавляют/удаляют записи вида `Муж (Имя)`.
 - **Админ‑панель** – команды `/admin`, `/admin1` открывают набор кнопок для администраторов (сброс таблицы, список функций, блокировка, разблокировка и т.п.).
@@ -56,16 +60,19 @@
 
 ## Как запустить оба бота одновременно
 ```bash
-# Актуальная схема: два окружения на одном хостинге
+# На хостинге в одном контейнере: run_both.py сам создаст .venv_tg и .venv_max
+# (по requirements-tg.txt / requirements-max.txt) и запустит оба процесса.
+python run_both.py
+
+# Если окружения уже есть — можно указать интерпретаторы явно:
 TG_PYTHON=/путь/venv_tg/bin/python MAX_PYTHON=/путь/venv_max/bin/python python run_both.py
 
 # Или вручную двумя процессами (systemd/screen/nohup):
 python main.py      # окружение с aiogram 2.x (pydantic 1)
 python max_main.py  # окружение с maxapi (pydantic 2)
-
-# Одно окружение сработает только после порта main.py на aiogram 3:
-python run_both.py
 ```
+
+**Важно для хостинга:** Docker-образ должен быть **Python 3.10+** (maxapi требует ≥3.10; `crosspost.py` использует `int | None`). `config.py`, `database.db`, `sbor.db` не должны перезаписываться `git pull` — их нужно загружать на хостинг отдельно и не включать AUTO UPDATE для этих файлов.
 
 ## Попытка прочитать `https://dev.max.ru/docs-api`
 Мы попытались получить содержимое страницы через **Playwright** (Firefox/Chromium) и через **WebFetch**, однако текущие политики безопасности в этом окружении блокируют запросы к внешним доменам. Поэтому контент сайта не удалось загрузить автоматически. Если у вас есть копия HTML‑кода, либо вы можете предоставить её другим способом, мы сможем добавить её в документацию.

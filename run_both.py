@@ -1,17 +1,15 @@
-"""run_both.py — запуск Telegram-бота и MAX-бота на одном хостинге.
+"""run_both.py — запуск Telegram- и MAX-бота на одном хостинге.
 
-ВАЖНО: aiogram 2.x (нужен main.py) требует pydantic v1, а maxapi требует
-pydantic v2. Эти библиотеки не могут жить в одном интерпретаторе, поэтому
-боты запускаются ДВУМЯ ОТДЕЛЬНЫМИ ПРОЦЕССАМИ, но работают с одними и теми же
-базами данных (sbor.db и database.db) и общим файлом лога bot.log.
+Боты используют несовместимые версии pydantic (aiogram 2 -> v1, maxapi -> v2),
+поэтому для каждого создаётся собственное venv в каталоге проекта:
+.venv_tg и .venv_max. При первом запуске venv создаются и зависимости
+устанавливаются автоматически, повторные запуски используют готовые окружения.
 
-Если оба бота запускаются одним интерпретатором (например, когда main.py
-переведён на aiogram 3), просто запустите: python run_both.py
+Если переменные окружения TG_PYTHON и/или MAX_PYTHON заданы, соответствующий
+venv не создаётся — используется указанный интерпретатор.
 
-Если на хостинге два разных окружения (venv), укажите пути к их python:
-    TG_PYTHON=/путь/venv_tg/bin/python MAX_PYTHON=/путь/venv_max/bin/python python run_both.py
-
-Супервизор перезапускает упавший бот через 5 секунд. Остановка — Ctrl+C.
+Супервизор перезапускает упавший процесс через RESTART_DELAY секунд.
+Остановка — Ctrl+C (или SIGTERM от панели хостинга).
 """
 import os
 import subprocess
@@ -23,54 +21,107 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TG_SCRIPT = os.path.join(SCRIPT_DIR, "main.py")
 MAX_SCRIPT = os.path.join(SCRIPT_DIR, "max_main.py")
 
-# Разные интерпретаторы для разных окружений (по умолчанию — текущий python)
-TG_PYTHON = os.environ.get("TG_PYTHON", sys.executable)
-MAX_PYTHON = os.environ.get("MAX_PYTHON", sys.executable)
+RESTART_DELAY = 5
 
-RESTART_DELAY = 5  # секунд до перезапуска упавшего бота
+
+def _venv_python(venv_dir: str) -> str:
+    """Путь к python внутри venv (Windows и Linux)."""
+    if os.name == "nt":
+        return os.path.join(venv_dir, "Scripts", "python.exe")
+    return os.path.join(venv_dir, "bin", "python")
+
+
+def _requirements_path(name: str) -> str:
+    return os.path.join(SCRIPT_DIR, f"requirements-{name}.txt")
+
+
+def _ensure_environment(name: str) -> str:
+    """Создать venv с зависимостями, если его ещё нет. Вернуть путь к python."""
+    venv_dir = os.path.join(SCRIPT_DIR, f".venv_{name}")
+    python = _venv_python(venv_dir)
+    requirements = _requirements_path(name)
+
+    if not os.path.exists(python):
+        print(f"[run_both] создаю окружение {name}: {venv_dir}", flush=True)
+        subprocess.check_call([sys.executable, "-m", "venv", venv_dir])
+
+    marker = os.path.join(venv_dir, ".requirements_installed")
+    need_install = not os.path.exists(marker)
+    if not need_install and os.path.exists(requirements):
+        need_install = os.path.getmtime(marker) < os.path.getmtime(requirements)
+
+    if need_install:
+        print(f"[run_both] устанавливаю зависимости {name}...", flush=True)
+        subprocess.check_call(
+            [
+                python,
+                "-m",
+                "pip",
+                "install",
+                "--no-cache-dir",
+                "--disable-pip-version-check",
+                "-r",
+                requirements,
+            ]
+        )
+        with open(marker, "w", encoding="utf-8") as file:
+            file.write("ok\n")
+
+    return python
+
+
+def _resolve_python(name: str, env_var: str) -> str:
+    value = os.environ.get(env_var)
+    if value:
+        print(f"[run_both] {name}: используем {env_var}={value}", flush=True)
+        return value
+    return _ensure_environment(name)
 
 
 def spawn(name: str, python: str, script: str):
-    print(f"[run_both] Запуск {name}: {python} {script}")
-    return subprocess.Popen(
-        [python, script],
-        cwd=SCRIPT_DIR,
-    )
+    print(f"[run_both] запуск {name}: {python} {script}", flush=True)
+    return subprocess.Popen([python, script], cwd=SCRIPT_DIR)
 
 
 def main():
     if not os.path.exists(TG_SCRIPT):
-        print(f"[run_both] Не найден {TG_SCRIPT}")
+        print(f"[run_both] не найден {TG_SCRIPT}")
         sys.exit(1)
     if not os.path.exists(MAX_SCRIPT):
-        print(f"[run_both] Не найден {MAX_SCRIPT}")
+        print(f"[run_both] не найден {MAX_SCRIPT}")
         sys.exit(1)
 
-    procs = {}
+    tg_python = _resolve_python("telegram", "TG_PYTHON")
+    max_python = _resolve_python("max", "MAX_PYTHON")
 
-    def start(name, python, script):
-        procs[name] = spawn(name, python, script)
+    procs = {
+        "telegram": spawn("telegram", tg_python, TG_SCRIPT),
+        "max": spawn("max", max_python, MAX_SCRIPT),
+    }
 
     try:
-        start("telegram", TG_PYTHON, TG_SCRIPT)
-        start("max", MAX_PYTHON, MAX_SCRIPT)
-
         while True:
             time.sleep(RESTART_DELAY)
             for name, (python, script) in {
-                "telegram": (TG_PYTHON, TG_SCRIPT),
-                "max": (MAX_PYTHON, MAX_SCRIPT),
+                "telegram": (tg_python, TG_SCRIPT),
+                "max": (max_python, MAX_SCRIPT),
             }.items():
                 proc = procs[name]
                 code = proc.poll()
                 if code is not None:
-                    print(f"[run_both] {name} завершился с кодом {code}, перезапуск через {RESTART_DELAY} c...")
+                    print(
+                        f"[run_both] {name} завершился с кодом {code}, "
+                        f"перезапуск через {RESTART_DELAY} c...",
+                        flush=True,
+                    )
                     time.sleep(RESTART_DELAY)
-                    start(name, python, script)
+                    procs[name] = spawn(name, python, script)
     except KeyboardInterrupt:
-        print("\n[run_both] Остановка ботов...")
+        print("\n[run_both] остановка ботов...", flush=True)
+    finally:
         for proc in procs.values():
-            proc.terminate()
+            if proc.poll() is None:
+                proc.terminate()
         for proc in procs.values():
             try:
                 proc.wait(timeout=10)

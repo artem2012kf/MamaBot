@@ -1,0 +1,6 @@
+# Telegram-бот (aiogram 2, pydantic v1). Python 3.10+.
+aiogram==2.25.1
+aioschedule
+pytz
+pydantic==1.10.15
+aiohttp
