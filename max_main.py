@@ -36,6 +36,7 @@ from keyboards_max import (
     tren,
 )
 import utils
+import crosspost
 import active
 from shared.logger import bot_logger as logger
 
@@ -214,28 +215,30 @@ async def log_action(event, action_type: str):
     )
 
 
-# Хранилище ID последних сообщений со списком (message_id в MAX — строка)
-last_list_messages = {}
-
-
 async def send_updated_list(chat_id: int | None):
-    """Отправляет обновлённый список в чат и удаляет предыдущий."""
+    """Отправляет обновлённый список в группы MAX и Telegram."""
+    # Обновляем сообщение в MAX-группе (если она настроена)
     if chat_id is None:
-        logger.warning("GROUP_ID_MAX не задан — список не отправлен")
-        return
-
-    if chat_id in last_list_messages:
-        try:
-            await bot.delete_message(last_list_messages[chat_id])
-        except Exception:
-            pass
+        logger.warning("GROUP_ID_MAX не задан — список в MAX не отправлен")
+    else:
+        previous_mid = utils.get_state("max_list_message_mid")
+        if previous_mid:
+            try:
+                await bot.delete_message(previous_mid)
+            except Exception:
+                pass
 
     # Список отправляется без форматирования: разметка Markdown в MAX
     # отличается от Telegram и может ломаться на именах участников
     list_text = utils.select()
-    sent = await bot.send_message(chat_id=chat_id, text=list_text)
-    if sent.message is not None and sent.message.body is not None:
-        last_list_messages[chat_id] = sent.message.body.mid
+
+    if chat_id is not None:
+        sent = await bot.send_message(chat_id=chat_id, text=list_text)
+        if sent.message is not None and sent.message.body is not None:
+            utils.set_state("max_list_message_mid", sent.message.body.mid)
+
+    # Кросс-пост: обновляем список в Telegram-группе (в фоне, чтобы не задерживать событие)
+    crosspost.spawn(crosspost.post_to_telegram(list_text))
 
 
 def require_group_chat_id():
@@ -358,8 +361,10 @@ async def buy1(cb: MessageCallback):
     gender_value = active.gender(user.user_id, source="max")
 
     if utils.check_user_exists(username):
-        return
-    utils.add(username, gender_value)
+        # Уже записан: обновляем мессенджер-источник (значок в списке)
+        utils.set_source(username, "max")
+    else:
+        utils.add(username, gender_value, "max")
     await send_updated_list(require_group_chat_id())
 
 
@@ -390,7 +395,7 @@ async def add_male_friend(cb: MessageCallback):
 
     user_name = full_name(user)
     friend_name = utils.get_user_friend_name(user_name, "Муж")
-    utils.add(friend_name, "Муж")
+    utils.add(friend_name, "Муж", "max")
     await send_updated_list(require_group_chat_id())
 
 
@@ -405,7 +410,7 @@ async def add_female_friend(cb: MessageCallback):
 
     user_name = full_name(user)
     friend_name = utils.get_user_friend_name(user_name, "Дев")
-    utils.add(friend_name, "Дев")
+    utils.add(friend_name, "Дев", "max")
     await send_updated_list(require_group_chat_id())
 
 
@@ -467,7 +472,7 @@ async def process_gender_selection(cb: MessageCallback, context: BaseContext):
 
     await log_action(cb, f"Выбран пол ({gender}) для: {name}")
 
-    utils.add(name, gender)
+    utils.add(name, gender, "max")
     await reply_to_cb(cb, f"✅ {name} ({gender}) успешно добавлен!")
     await send_updated_list(require_group_chat_id())
     logger.info(f"✅ Успешно добавлен: {name} | Пол: {gender}")
@@ -655,7 +660,7 @@ async def add_user_by_name(event: MessageCreated, context: BaseContext):
         await bot.send_message(user_id=msg.sender.user_id, text="Такие данные уже есть")
     else:
         # В Telegram-версии здесь была ошибка (utils.add без пола) — добавляем с полом unknown
-        utils.add(username, "unknown")
+        utils.add(username, "unknown", "max")
         await bot.send_message(user_id=msg.sender.user_id, text=f"{utils.select()}")
     await context.clear()
 

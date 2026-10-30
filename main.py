@@ -18,6 +18,7 @@ import aioschedule
 from config import *
 from keyboards import *
 import utils
+import crosspost
 from shared.db import get_connection
 from aiogram.utils import executor
 import aioschedule
@@ -215,14 +216,14 @@ async def buy1(call: types.CallbackQuery):
 
     # УБРАНА ПРОВЕРКА ОГРАНИЧЕНИЯ НА ЖЕНЩИН
     if utils.check_user_exists(username):
-        return
+        # Уже записан: обновляем мессенджер-источник (значок в списке)
+        utils.set_source(username, "tg")
     else:
         # Добавляем в временную базу sbor.db
-        utils.add(username, gender_value)
-        
-        
-        # Отправляем обновленный список
-        await send_updated_list(GROUP_ID)
+        utils.add(username, gender_value, "tg")
+    
+    # Отправляем обновленный список
+    await send_updated_list(GROUP_ID)
 
 @dp.callback_query_handler(text="Я не иду")
 async def not_going(call: types.CallbackQuery):
@@ -249,25 +250,24 @@ async def not_going(call: types.CallbackQuery):
     else:
         return
 
-# Хранилище для ID последних сообщений со списком
-last_list_messages = {}
-
 async def send_updated_list(chat_id):
-    """Отправляет обновленный список и удаляет предыдущий"""
-    # Удаляем предыдущее сообщение со списком, если оно есть
-    if chat_id in last_list_messages:
+    """Отправляет обновленный список в группы Telegram и MAX."""
+    # Удаляем предыдущее сообщение в TG-группе (ID общий для обоих ботов)
+    previous_id = utils.get_state("tg_list_message_id")
+    if previous_id:
         try:
-            await bot.delete_message(chat_id, last_list_messages[chat_id])
-        except:
+            await bot.delete_message(chat_id, int(previous_id))
+        except Exception:
             pass
-    
+
     # Получаем новый список участников
     list_text = utils.select()
     # ИЗМЕНЕНО: Добавлен parse_mode для поддержки Markdown
     sent_message = await bot.send_message(chat_id, list_text, parse_mode="Markdown")
-    
-    # Сохраняем ID нового сообщения
-    last_list_messages[chat_id] = sent_message.message_id
+    utils.set_state("tg_list_message_id", sent_message.message_id)
+
+    # Кросс-пост: обновляем список в MAX-группе (в фоне, чтобы не задерживать событие)
+    crosspost.spawn(crosspost.post_to_max(list_text))
 from config import MAX_WOMEN
 
 @dp.callback_query_handler(text="+ Мужчина")
@@ -286,7 +286,7 @@ async def add_male_friend(call: types.CallbackQuery):
     friend_name = utils.get_user_friend_name(user_name, 'Муж')
     
     # Просто добавляем без проверки на дубликаты
-    utils.add(friend_name, "Муж")
+    utils.add(friend_name, "Муж", "tg")
     
     
     # Отправляем обновленный список
@@ -309,7 +309,7 @@ async def add_female_friend(call: types.CallbackQuery):
     friend_name = utils.get_user_friend_name(user_name, 'Дев')
     
     # Просто добавляем без проверки на дубликаты
-    utils.add(friend_name, "Дев")
+    utils.add(friend_name, "Дев", "tg")
     
     
     # Отправляем обновленный список
@@ -388,7 +388,7 @@ async def process_gender_selection(call: types.CallbackQuery, state: FSMContext)
     
     await log_action(call, f"Выбран пол ({gender}) для: {name}")
     
-    utils.add(name, gender)
+    utils.add(name, gender, "tg")
     await call.message.answer(f"✅ <b>{name}</b> ({gender}) успешно добавлен!", parse_mode="HTML")
     await send_updated_list(GROUP_ID)
     logger.info(f"✅ Успешно добавлен: {name} | Пол: {gender}")
@@ -628,7 +628,7 @@ async def buy31(message: types.Message, state: FSMContext):
     if utils.check_user_exists(username):
         await bot.send_message(chat_id=message.from_user.id, text="Такие данные уже есть")
     else:
-        utils.add(username)
+        utils.add(username, "unknown", "tg")
         await bot.send_message(chat_id=message.from_user.id, text=f"{utils.select()}")
     await state.finish()
 

@@ -17,6 +17,40 @@ gender TEXT NOT NULL
 )
 ''')
 
+# Общее состояние ботов: ID последних сообщений со списком в группах.
+# Нужно для кросс-поста: TG- и MAX-боты работают разными процессами,
+# но должны удалять/обновлять одни и те же сообщения в обеих группах.
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS bot_state(
+key TEXT PRIMARY KEY,
+value TEXT
+)
+''')
+
+# Значки мессенджера, из которого пришла запись (см. столбец source в sbor)
+SOURCE_ICONS = {
+    "tg": "✈️",   # Telegram
+    "max": "🟣",  # MAX
+}
+
+
+def _migrate_sbor_table():
+    """Добавить столбец source в sbor, если его ещё нет (старые базы)."""
+    cursor.execute("PRAGMA table_info(sbor)")
+    columns = [row[1] for row in cursor.fetchall()]
+    if "source" in columns:
+        return
+    try:
+        cursor.execute("ALTER TABLE sbor ADD COLUMN source TEXT")
+        connection.commit()
+        print("Миграция sbor.db: добавлен столбец source")
+    except sqlite3.OperationalError as e:
+        # Другой процесс (TG/MAX) успел выполнить миграцию первым
+        print(f"Не удалось добавить столбец source (возможно, уже добавлен): {e}")
+
+
+_migrate_sbor_table()
+
 def usersdel():
     cursor.execute("DELETE FROM sbor")
     connection.commit()
@@ -35,15 +69,43 @@ def del_one(username):
     connection.commit()
     print(f"Удален пользователь: {username}")
 
-def add(username, gender):
+def add(username, gender, source="tg"):
     if gender is None:
         gender = "unknown"
         print(f"Внимание: для пользователя {username} gender = None, установлено 'unknown'")
     
-    cursor.execute("INSERT INTO sbor (name, gender) VALUES (?, ?)", 
-                  (username, gender))
+    cursor.execute("INSERT INTO sbor (name, gender, source) VALUES (?, ?, ?)", 
+                  (username, gender, source))
     connection.commit()
-    print(f"Добавлен: {username}, gender: {gender}")
+    print(f"Добавлен: {username}, gender: {gender}, source: {source}")
+
+
+def set_source(username, source):
+    """Обновить источник записи.
+
+    Вызывается, когда уже записанный человек повторно нажимает «Я иду»
+    в другом мессенджере: значок в списке должен показывать последний
+    источник записи.
+    """
+    cursor.execute("UPDATE sbor SET source = ? WHERE name = ?", (source, username))
+    connection.commit()
+    print(f"Источник обновлён: {username} -> {source}")
+
+
+def get_state(key, default=None):
+    """Прочитать общее состояние ботов (ID сообщений со списком и т.п.)."""
+    cursor.execute("SELECT value FROM bot_state WHERE key = ?", (key,))
+    rows = cursor.fetchall()
+    return rows[0][0] if rows else default
+
+
+def set_state(key, value):
+    """Сохранить общее состояние ботов."""
+    cursor.execute(
+        "INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)",
+        (key, str(value)),
+    )
+    connection.commit()
 
 def delete(username):
     cursor.execute('DELETE FROM sbor WHERE name = ?', (username,))
@@ -62,10 +124,30 @@ def get_user_friends_count(user_name, gender_type):
                   (friend_name, gender_type))
     return cursor.fetchall()[0][0]
 
+def _format_entry_name(row):
+    """Имя для списка: сокращение друзей и значок мессенджера-источника."""
+    name = row[0]
+    if '(' in name and ')' in name:
+        # Заменяем "Муж (" на "+ М (", "Дев (" на "+ Д ("
+        if name.startswith('Муж ('):
+            name = name.replace('Муж (', '+ М (')
+        elif name.startswith('Дев ('):
+            name = name.replace('Дев (', '+ Д (')
+    icon = SOURCE_ICONS.get(row[2])
+    if icon:
+        name = f"{icon} {name}"
+    return name
+
+
 def select():
     # Получаем все записи в порядке добавления
-    cursor.execute('SELECT name, gender FROM sbor ORDER BY rowid')
-    results = cursor.fetchall()
+    try:
+        cursor.execute('SELECT name, gender, source FROM sbor ORDER BY rowid')
+        results = cursor.fetchall()
+    except sqlite3.OperationalError:
+        # Старая база без столбца source (миграция не успела) — выводим без значков
+        cursor.execute('SELECT name, gender, NULL FROM sbor ORDER BY rowid')
+        results = cursor.fetchall()
 
     if not results:
         return 'Список пуст'
@@ -95,28 +177,13 @@ def select():
     
     # Выводим основной состав в порядке добавления
     for i, row in enumerate(main_list, 1):
-        name = row[0]
-        # Добавляем + к друзьям с пробелом и сокращаем названия
-        if '(' in name and ')' in name:
-            # Заменяем "Муж (" на "+ М (", "Дев (" на "+ Д ("
-            if name.startswith('Муж ('):
-                name = name.replace('Муж (', '+ М (')
-            elif name.startswith('Дев ('):
-                name = name.replace('Дев (', '+ Д (')
-        sms += f'{i}. {name}\n'
+        sms += f'{i}. {_format_entry_name(row)}\n'
     
     # Выводим резерв если есть
     if reserve_list:
         sms += '\nРезерв:\n'
         for i, row in enumerate(reserve_list, len(main_list) + 1):
-            name = row[0]
-            # Добавляем + к друзьям в резерве с пробелом и сокращаем названия
-            if '(' in name and ')' in name:
-                if name.startswith('Муж ('):
-                    name = name.replace('Муж (', '+ М (')
-                elif name.startswith('Дев ('):
-                    name = name.replace('Дев (', '+ Д (')
-            sms += f'{i}. {name}\n'
+            sms += f'{i}. {_format_entry_name(row)}\n'
 
     return sms
 
